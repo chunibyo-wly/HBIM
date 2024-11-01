@@ -2,11 +2,13 @@ import os
 import sys
 from functools import wraps
 
+from numpy import pad
+
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(WORKSPACE)
 
 import tkinter as tk
-from tkinter import font as tkFont
+from tkinter import NO, font as tkFont
 from tkinter import messagebox, ttk
 
 import cccorelib
@@ -201,6 +203,7 @@ class MainWindow:
         # CC.addToDB(self.cc_mesh_result)
 
         self.root_path = WORKSPACE
+        self.variable = None
         self.initUI()
 
     @exception_handler_decorator
@@ -221,11 +224,16 @@ class MainWindow:
         self.tabSetup = self.tabs.add("  参数设置  ")
         self.tabAPI = self.tabs.add("  API 调用说明  ")
         self.tabAbout = self.tabs.add("  关于  ")
-
         self.tabs.pack(expand=True, fill="both")
 
-        # ! Tab 1 ========= tabDemo ==============
-        # Step 1 : PCD load button // cur_row : 0
+        self.initTabDemo()
+        self.initTabSetup()
+        self.initTabAPI()
+        self.initTabAbout()
+        self.root.mainloop()
+
+    def initTabDemo(self):
+        # ! Step 1 : PCD load button // cur_row : 0
         cur_row = 0
         ctk.CTkLabel(
             self.tabDemo,
@@ -238,29 +246,121 @@ class MainWindow:
             text="加载测试文件",
             command=self.loadall,
             font=self.font,
-        ).grid(row=cur_row, column=1, columnspan=3, sticky="ew")
+        ).grid(row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2)
 
-        # Step 2 : select a target cloud // cur_row : 1
+        # ! Step 2 : select a target cloud // cur_row : 1
         cur_row += 1
         ctk.CTkLabel(
             self.tabDemo,
-            text="1. 选择目标点云",
+            text="1. 加载原始点云",
             anchor="w",
             font=self.font,
         ).grid(column=0, row=cur_row, sticky="ew")
         ctk.CTkButton(
             self.tabDemo,
-            text="选择目标点云",
+            text="本地点云选择",
             command=self.selecttargetfile,
             font=self.font,
-        ).grid(row=cur_row, column=1, columnspan=3, sticky="ew")
+        ).grid(row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2)
 
-        for i in range(3):
-            self.tabDemo.grid_rowconfigure(i, weight=1)  # 行随着窗口变化
+        # ! Step 3 : select a target problem // cur_row : 2
+        cur_row += 1
+        ctk.CTkLabel(
+            self.tabDemo,
+            text="2. 加载 BIM 组件",
+            anchor="w",
+            font=self.font,
+        ).grid(column=0, row=cur_row, sticky="ew")
+        self.variable = ctk.StringVar()
+        ctk.CTkComboBox(
+            self.tabDemo,
+            width=30,
+            state="readonly",
+            variable=self.variable,
+            values=("Column", "Door", "Office"),
+        ).grid(row=cur_row, column=1, columnspan=2, sticky="ew", padx=2)
+        ctk.CTkButton(
+            self.tabDemo,
+            text="本地 BIM 组件选择",
+            command=self.selecttargetBIMcompp,
+            font=self.font,
+        ).grid(row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2)
+
+        # ! Step 4 : match --> confirm or decline // cur_row : 3
+        cur_row += 1
+        ctk.CTkLabel(
+            self.tabDemo,
+            text="3. 执行三维重建",
+            anchor="w",
+            font=self.font,
+        ).grid(column=0, row=cur_row, sticky="ew", padx=2)
+        ctk.CTkButton(
+            self.tabDemo,
+            text="快速配准",
+            command=self.run_comp_callback,
+            font=self.font,
+            state="disabled",
+        ).grid(row=cur_row, column=1, columnspan=1, sticky="ew", pady=5, padx=2)
+        ctk.CTkButton(
+            self.tabDemo,
+            text="自动运行",
+            command=self.iter_comp_callback,
+            font=self.font,
+        ).grid(row=cur_row, column=2, columnspan=1, sticky="ew", pady=5, padx=2)
+        ctk.CTkButton(
+            self.tabDemo,
+            text="停止运行",
+            command=self.iter_stop,
+            font=self.font,
+        ).grid(row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2)
+
+        # ! Step 5 : match --> export // cur_row : 4
+        cur_row += 1
+        ctk.CTkLabel(
+            self.tabDemo,
+            text="4. 存储结果",
+            anchor="w",
+            font=self.font,
+        ).grid(column=0, row=cur_row, sticky="ew", padx=2)
+        ctk.CTkButton(
+            self.tabDemo,
+            text="存储路径选择",
+            command=self.export_json,
+            font=self.font,
+        ).grid(row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2)
+
         for i in range(4):
             self.tabDemo.grid_columnconfigure(i, weight=1)  # 列随着窗口变化
-        # sv_ttk.set_theme("light")
-        self.root.mainloop()
+
+    def initTabSetup(self):
+        pass
+
+    def initTabAPI(self):
+        pass
+
+    def initTabAbout(self):
+        # Tab 4 ========= tabAbout ==============
+
+        self.scrAbout = ctk.CTkTextbox(
+            self.tabAbout,
+            corner_radius=0,
+            font=ctk.CTkFont(family="LXGW WenKai", size=16),
+        )
+        self.scrAbout.pack(expand=True, fill="both")
+        self.scrAbout.insert(
+            tk.INSERT,
+            """\
+    动态建模插件 SemRegPy
+
+    本插件以 Xue 等 (2019) 提出的语义配准 (Semantic Registration) 技术为基础，针对《面向粵港澳歷史文化保護傳承的虛擬現實技術研究與應用》(The applications of Virtual Reality technologies for cultural heritage conservation in the Guangdong-Hong Kong-Macao Greater Bay Area)项目而特别研发。
+
+    通过 semregpy.core, semregpy.fitness, 和 semregpy.component 等 Python 接口，各类 GIS/BIM API 平台（例如 ArcGIS Pro 和 Revit）和应用提供动态建模的功能。（接口的参数类型和调用顺序，以本演示程序的内嵌流程为例）
+
+    参考文献
+    Xue, F., Lu, W., Chen, K., & Zetkulic, A. (2019). From semantic segmentation to semantic registration: Derivative-Free Optimization–based approach for automatic generation of semantically rich as-built Building Information Models from 3D point clouds. Journal of Computing in Civil Engineering, 33(4), 04019024.
+    """,
+        )
+        self.scrAbout.configure(state=ctk.DISABLED)
 
     @exception_handler_decorator
     def loadall(self):
@@ -268,6 +368,28 @@ class MainWindow:
 
     @exception_handler_decorator
     def selecttargetfile(self):
+        raise NotImplementedError("Not implemented yet")
+
+    @exception_handler_decorator
+    def selecttargetBIMcompp(self):
+        if self.variable is None or self.variable.get() == "":
+            raise NotImplementedError("Not implemented yet")
+        print(self.variable.get())
+
+    @exception_handler_decorator
+    def run_comp_callback(self):
+        raise NotImplementedError("Not implemented yet")
+
+    @exception_handler_decorator
+    def iter_comp_callback(self):
+        raise NotImplementedError("Not implemented yet")
+
+    @exception_handler_decorator
+    def iter_stop(self):
+        raise NotImplementedError("Not implemented yet")
+
+    @exception_handler_decorator
+    def export_json(self):
         raise NotImplementedError("Not implemented yet")
 
 
