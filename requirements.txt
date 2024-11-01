@@ -1,0 +1,4 @@
+sv-ttk
+open3d
+numpy
+nlopt
