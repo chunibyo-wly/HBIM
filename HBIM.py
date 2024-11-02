@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 
@@ -25,8 +26,22 @@ from utils import (
 )
 
 
+def CC_translate(entity, translation=(0.0, 0.0, 0.0)):
+    x, y, z = translation
+    glMat = entity.getGLTransformation()
+    translation = glMat.getTranslationAsVec3D()
+    translation.x += x
+    translation.y += y
+    translation.z += z
+    glMat.setTranslation(translation)
+
+    entity.setGLTransformation(glMat)
+    entity.applyGLTransformation_recursive()
+    CC.redrawAll()
+
+
 class MainWindow:
-    def __init__(self, pipe):
+    def __init__(self, pipe_in, pipe_out):
         CC.freezeUI(False)
 
         # self.solver = SemRegPy()
@@ -34,7 +49,7 @@ class MainWindow:
         self.current_mesh = None
         self.json_results = []
         self.mesh_results = set()
-        self.UI_REFRESH = 1000
+        self.UI_REFRESH = 10
 
         self.cmbParaAlg = None
         self.cmbParaIter = None
@@ -46,7 +61,8 @@ class MainWindow:
         # self.cc_mesh_result = pycc.ccHObject("Result")
         # CC.addToDB(self.cc_mesh_result)
 
-        self.pipe = pipe
+        self.pipe_in = pipe_in
+        self.pipe_out = pipe_out
         self.variable = None
         self.pcd_path = None
         self.CC_pcd = None
@@ -85,7 +101,7 @@ class MainWindow:
 
     @exception_handler_decorator
     def send(self, msg):
-        self.pipe.put(msg)
+        self.pipe_in.put(msg)
 
     def initTabDemo(self):
         # ! Step 1 : PCD load button // cur_row : 0
@@ -264,14 +280,6 @@ class MainWindow:
         self._set_mesh_path(os.path.join(WORKSPACE, Settings.mesh_test_path))
         CC.updateUI()
 
-        # solver = SemRegPy()
-        # solver.VERBOSE = False
-        # solver.load_prob_file(pcd_test_path)
-        # bim_family = solver.load_mesh_file(mesh_test_path)
-        # if bim_family is None:
-        #     bim_family = ColumnComponent()
-        # solver.solve(bim_family, max_eval=200)
-
     @exception_handler_decorator
     def _set_pcd_path(self, pcd_path):
         self.pcd_path = pcd_path
@@ -320,8 +328,30 @@ class MainWindow:
         raise NotImplementedError("Not implemented yet")
 
     @exception_handler_decorator
+    def _progress_fake(self):
+        # 缓动函数：指数衰减（先快后慢）
+        def ease_out_expo(t):
+            return 1 - math.pow(2, -10 * t) if t < 0.95 else 0.95
+
+        elapsed = time.time() - self.process_start_time
+        progress_ratio = min(elapsed / 2, 0.95)  # 进度时间比例
+        eased_progress = ease_out_expo(progress_ratio)  # 应用缓动函数
+        return eased_progress
+
+    @exception_handler_decorator
     def _query_result(self):
-        pass
+        if self.pipe_out.empty():
+            value = self._progress_fake()
+            self.progress_bar.set(value)
+            self.root.after(self.UI_REFRESH, self._query_result)
+        else:
+            result = self.pipe_out.get()
+            self.progress_bar.set(1)
+            print(result)
+            mesh_candidate = CC.loadFile(self.mesh_path, self.params)
+            CC_translate(
+                mesh_candidate, (result["t"][0], result["t"][1], result["t"][2])
+            )
 
     @exception_handler_decorator
     def register_multi(self):
@@ -331,8 +361,11 @@ class MainWindow:
             "mesh_path": self.mesh_path,
             "bim_family": self.variable,
         }
-        self.pipe.put(msg)
-        self.root.after(self.UI_REFRESH, lambda: self.progress_bar.set(50))
+        self.pipe_in.put(msg)
+        self.progress_bar.set(0)
+        self.root.update()
+        self.process_start_time = time.time()
+        self.root.after(self.UI_REFRESH, self._query_result)
 
     @exception_handler_decorator
     def register_multi_stop(self):
@@ -343,10 +376,7 @@ class MainWindow:
         raise NotImplementedError("Not implemented yet")
 
 
-def initUI(pipe):
-    MainWindow(pipe)
-
-
+@exception_handler_decorator
 def execute_register_multi(params):
     pcd_path = params["pcd_path"]
     mesh_path = params["mesh_path"]
@@ -367,20 +397,39 @@ def execute_register_multi(params):
     if bim_family is None:
         bim_family = tmp if tmp is not None else ColumnComponent()
     result = solver.solve(bim_family, max_eval=200)
-    print(result)
+
+    mesh_center = solver.mesh.pcd.origin.get_center()
+    translation = (
+        result["best_c"][0] - mesh_center[0],
+        result["best_c"][1] - mesh_center[1],
+        result["best_c"][2] - mesh_center[2],
+    )
+    rotation = result["best_rz"]
+    return {
+        "t": translation,
+        "R": rotation,
+    }
 
 
-def background_task(q):
+def background_task(pipe_in, pipe_out):
+    """
+    Always running in the background without blocking
+    both the CloudCompare and the TKinter mainloop
+
+    Handles the Long-running tasks:
+        Register multiple BIM components
+    """
     pycc.ccLog.Warning("Background task started")
     while True:
         try:
-            msg = q.get_nowait()
+            msg = pipe_in.get_nowait()
             msg_text = msg.signal
             if msg_text == EXIT:
                 break
             elif msg_text == REGISTER_MULTI:
                 params = msg.message
-                execute_register_multi(params)
+                result = execute_register_multi(params)
+                pipe_out.put(result)
         except queue.Empty:
             pass
         time.sleep(0.1)
@@ -388,9 +437,22 @@ def background_task(q):
 
 
 if __name__ == "__main__":
-    pipe = queue.Queue()
-    t = threading.Thread(target=background_task, args=(pipe,), daemon=True)
+    """
+    tkinter    ---> pipe_in  ---> background (request)
+    background ---> pipe_out ---> tkinter    (result)
+    """
+
+    pipe_in = queue.Queue()
+    pipe_out = queue.Queue()
+    t = threading.Thread(
+        target=background_task,
+        args=(
+            pipe_in,
+            pipe_out,
+        ),
+        daemon=True,
+    )
     t.start()
-    initUI(pipe)
-    pipe.put(SignalMessage(EXIT))
+    MainWindow(pipe_in, pipe_out)
+    pipe_in.put(SignalMessage(EXIT))
     t.join()
