@@ -1,24 +1,25 @@
 import os
 import sys
-from functools import wraps
+import tkinter
 
-from numpy import pad
+from flask.cli import F
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(WORKSPACE)
 
-import tkinter as tk
-from tkinter import NO, font as tkFont
-from tkinter import messagebox, ttk
+import queue
+import threading
+import time
+import traceback
+from functools import wraps
 
 import cccorelib
-import nlopt
+import customtkinter as ctk
 import pycc
 
-# import sv_ttk
-import customtkinter as ctk
-
-# from semregpy.core import SemRegPy
+from semregpy.component.column import ColumnComponent
+from semregpy.core import SemRegPy
+from utils.settings import Settings
 
 CC = pycc.GetInstance()
 ctk.set_default_color_theme("green")
@@ -169,10 +170,17 @@ def exception_handler_decorator(func):
             print(f"{func.__name__} Executing")
             a = func(*args, **kwargs)
             print(f"{func.__name__} Executed Done")
-            CC.freezeUI(False)
             return a
         except Exception as e:
+            tb_str = "".join(
+                traceback.format_exception(type(e), value=e, tb=e.__traceback__)
+            )
+
+            # 打印文件名、行号和异常信息
             print(f"An error occurred: {e}")
+            print(f"Traceback info: {tb_str}")
+
+            # 假设你有一个 CTkAlertDialog 实例，用于显示错误信息
             CTkAlertDialog(
                 title="HBIM Error",
                 text=str(e),
@@ -183,8 +191,14 @@ def exception_handler_decorator(func):
     return wrapper
 
 
+def longtask():
+    pass
+
+
 class MainWindow:
-    def __init__(self):
+    def __init__(self, pipe):
+        CC.freezeUI(False)
+
         # self.solver = SemRegPy()
         # self.solver.VERBOSE = False
         self.current_mesh = None
@@ -202,8 +216,15 @@ class MainWindow:
         # self.cc_mesh_result = pycc.ccHObject("Result")
         # CC.addToDB(self.cc_mesh_result)
 
-        self.root_path = WORKSPACE
+        self.pipe = pipe
         self.variable = None
+        self.pcd_path = None
+        self.CC_pcd = None
+        self.mesh_path = None
+        self.CC_mesh = None
+        self.params = pycc.FileIOFilter.LoadParameters()
+        self.params.parentWidget = CC.getMainWindow()
+        self.params.alwaysDisplayLoadDialog = False
         self.initUI()
 
     @exception_handler_decorator
@@ -212,7 +233,7 @@ class MainWindow:
         # 设置全局字体
         self.root.title("SemRegPy 动态建模插件演示 (c) HKU 2019-2022")
         self.root.resizable(True, True)
-        self.root.iconbitmap(os.path.join(self.root_path, "hku_logo.ico"))
+        self.root.iconbitmap(os.path.join(WORKSPACE, "hku_logo.ico"))
         self.root.geometry("800x300")
         self.font = ctk.CTkFont(family="LXGW WenKai", size=22)
 
@@ -232,6 +253,10 @@ class MainWindow:
         self.initTabAbout()
         self.root.mainloop()
 
+    @exception_handler_decorator
+    def send(self, msg):
+        self.pipe.put(msg)
+
     def initTabDemo(self):
         # ! Step 1 : PCD load button // cur_row : 0
         cur_row = 0
@@ -247,6 +272,18 @@ class MainWindow:
             command=self.loadall,
             font=self.font,
         ).grid(row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2)
+        # ctk.CTkButton(
+        #     self.tabDemo,
+        #     text="清除",
+        #     command=self.clearDB,
+        #     font=self.font,
+        # ).grid(row=cur_row, column=2, columnspan=1, sticky="ew", pady=5, padx=2)
+        # ctk.CTkButton(
+        #     self.tabDemo,
+        #     text="关闭 Pipe",
+        #     command=lambda: self.send("exit"),
+        #     font=self.font,
+        # ).grid(row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2)
 
         # ! Step 2 : select a target cloud // cur_row : 1
         cur_row += 1
@@ -256,12 +293,15 @@ class MainWindow:
             anchor="w",
             font=self.font,
         ).grid(column=0, row=cur_row, sticky="ew")
-        ctk.CTkButton(
+        self.pcd_select_btn = ctk.CTkButton(
             self.tabDemo,
             text="本地点云选择",
-            command=self.selecttargetfile,
+            command=self.select_target_file,
             font=self.font,
-        ).grid(row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2)
+        )
+        self.pcd_select_btn.grid(
+            row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2
+        )
 
         # ! Step 3 : select a target problem // cur_row : 2
         cur_row += 1
@@ -279,12 +319,15 @@ class MainWindow:
             variable=self.variable,
             values=("Column", "Door", "Office"),
         ).grid(row=cur_row, column=1, columnspan=2, sticky="ew", padx=2)
-        ctk.CTkButton(
+        self.mesh_select_btn = ctk.CTkButton(
             self.tabDemo,
             text="本地 BIM 组件选择",
-            command=self.selecttargetBIMcompp,
+            command=self.select_target_BIM_compp,
             font=self.font,
-        ).grid(row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2)
+        )
+        self.mesh_select_btn.grid(
+            row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2
+        )
 
         # ! Step 4 : match --> confirm or decline // cur_row : 3
         cur_row += 1
@@ -294,13 +337,16 @@ class MainWindow:
             anchor="w",
             font=self.font,
         ).grid(column=0, row=cur_row, sticky="ew", padx=2)
-        ctk.CTkButton(
+        self.process_btn = ctk.CTkButton(
             self.tabDemo,
             text="快速配准",
             command=self.run_comp_callback,
             font=self.font,
             state="disabled",
-        ).grid(row=cur_row, column=1, columnspan=1, sticky="ew", pady=5, padx=2)
+        )
+        self.process_btn.grid(
+            row=cur_row, column=1, columnspan=1, sticky="ew", pady=5, padx=2
+        )
         ctk.CTkButton(
             self.tabDemo,
             text="自动运行",
@@ -348,7 +394,7 @@ class MainWindow:
         )
         self.scrAbout.pack(expand=True, fill="both")
         self.scrAbout.insert(
-            tk.INSERT,
+            ctk.INSERT,
             """\
     动态建模插件 SemRegPy
 
@@ -363,18 +409,79 @@ class MainWindow:
         self.scrAbout.configure(state=ctk.DISABLED)
 
     @exception_handler_decorator
+    def get_entities(self):
+        if not CC.haveSelection():
+            entities = CC.dbRootObject()
+            print(help(entities))
+            entities = [
+                (
+                    entities.getChild(i)
+                    if entities.getChild(i).isHierarchy()
+                    else entities.getChild(i).getChild(0)
+                )
+                for i in range(entities.getChildrenNumber())
+            ]
+        else:
+            entities = CC.getSelectedEntities()
+        return entities
+
+    @exception_handler_decorator
     def loadall(self):
-        raise NotImplementedError("Not implemented yet")
+        pcd_test_path = os.path.join(WORKSPACE, Settings.pcd_test_path)
+        mesh_test_path = os.path.join(WORKSPACE, Settings.mesh_test_path)
+        pcd_test = CC.loadFile(pcd_test_path, self.params)
+        mesh_test = CC.loadFile(mesh_test_path, self.params)
+        pcd_test.setEnabled(False)
+        mesh_test.setEnabled(False)
+        CC.updateUI()
+        # entities = self.get_entities()
+        # a = entities.getChildrenNumber()
+        # print(a)
+        return
+
+        solver = SemRegPy()
+        solver.VERBOSE = False
+        solver.load_prob_file(pcd_test_path)
+        bim_family = solver.load_mesh_file(mesh_test_path)
+        if bim_family is None:
+            bim_family = ColumnComponent()
+        solver.solve(bim_family, max_eval=200)
 
     @exception_handler_decorator
-    def selecttargetfile(self):
-        raise NotImplementedError("Not implemented yet")
+    def select_target_file(self):
+        tmp = ctk.filedialog.askopenfilename(
+            filetypes=[
+                ("PLY files", "*.ply"),
+                ("PCD files", "*.pcd"),
+            ],
+            initialdir=WORKSPACE,
+        )
+        if tmp is None or tmp == "":
+            return
+        self.pcd_path = tmp
+        self.pcd_select_btn.configure(text=os.path.basename(tmp))
+        print(f"Selected file: {self.pcd_path}")
+        self.CC_pcd = CC.loadFile(self.pcd_path, self.params)
+        self.process_btn.configure(state="normal")
 
     @exception_handler_decorator
-    def selecttargetBIMcompp(self):
-        if self.variable is None or self.variable.get() == "":
-            raise NotImplementedError("Not implemented yet")
-        print(self.variable.get())
+    def select_target_BIM_compp(self):
+        tmp = ctk.filedialog.askopenfilename(
+            filetypes=[("BIM component file", "*.obj")], initialdir=WORKSPACE
+        )
+        if tmp is None or tmp == "":
+            return
+        self.mesh_path = tmp
+        self.mesh_select_btn.configure(text=os.path.basename(tmp))
+        print(f"Selected file: {self.mesh_path}")
+
+        # BIM family
+        if "column" in self.mesh_path.lower():
+            self.variable.set("Column")
+        elif "door" in self.mesh_path.lower():
+            self.variable.set("Door")
+        elif "office" in self.mesh_path.lower():
+            self.variable.set("Office")
 
     @exception_handler_decorator
     def run_comp_callback(self):
@@ -393,4 +500,10 @@ class MainWindow:
         raise NotImplementedError("Not implemented yet")
 
 
-MainWindow()
+def initUI(pipe):
+    MainWindow(pipe)
+
+
+if __name__ == "__main__":
+    pipe = queue.Queue()
+    initUI(pipe)

@@ -3,128 +3,16 @@ import numpy as np
 import open3d as o3d
 import copy
 import time
-import subprocess
-import math
-import random
-from joblib import Parallel, delayed
-
-from util.settings import *
-from semregpy.fitness.interface import *
-from semregpy.component.interface import *
-
-import pycc, cccorelib
-
-CC = pycc.GetInstance()
-params = pycc.FileIOFilter.LoadParameters()
-params.parentWidget = CC.getMainWindow()
-params.alwaysDisplayLoadDialog = False
-
-
-def random_color():
-    r = random.random()
-    g = random.random()
-    b = random.random()
-    return [r, g, b]
+from semregpy.component.column import ColumnComponent
+from semregpy.component.door import DoorComponent
+from semregpy.component.office import OfficeComponent
+from utils.settings import Settings
 
 
 def npxyz_to_pcd(np):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(np)
     return pcd
-
-
-def pycc_copy_new_mesh(entity):
-    v = entity.getAssociatedCloud()
-    print("v: ", v)
-    new_v = v.clone()
-
-    print("new_v: ", new_v)
-
-    # entity.setAssociatedCloud(v)
-
-
-def pycc_entity_center(entity):
-    v = entity.getAssociatedCloud().points()
-    return np.mean(v, axis=0)
-
-
-def pycc_translation(
-    entity,
-    x=0,
-    y=0,
-    z=0,
-    rx=0,
-    ry=0,
-    rz=0,
-    scale_x=1,
-    scale_y=1,
-    scale_z=1,
-    copy_entity=False,
-):
-    # if copy_entity:
-    #   entity = entity.clone()
-    glMat = entity.getGLTransformation()
-    translation = glMat.getTranslationAsVec3D()
-    center = entity.getDisplayBB_recursive(True).getCenter()
-    translation = translation - center
-
-    translation.x += x
-    translation.y += y
-    translation.z += z
-
-    glMat.setTranslation(translation)
-
-    glMat.scaleColumn(0, scale_x)
-    glMat.scaleColumn(1, scale_y)
-    glMat.scaleColumn(2, scale_z)
-
-    # entity.setGLTransformation(glMat)
-    # entity.applyGLTransformation_recursive()
-    # glTrans = entity.getGLTransformation()
-    # translation = glTrans.getTranslationAsVec3D()
-
-    # glMat.setTranslation(translation)
-
-    # entity.setGLTransformation(glMat)
-    # entity.applyGLTransformation_recursive()
-
-    glRot = pycc.ccGLMatrix()
-    glRot.initFromParameters(
-        math.radians(rx),
-        cccorelib.CCVector3(1, 0, 0),
-        cccorelib.CCVector3(0, 0, 0),
-    )
-    glMat = glRot * glMat
-
-    glRot.initFromParameters(
-        math.radians(ry),
-        cccorelib.CCVector3(0, 1, 0),
-        cccorelib.CCVector3(0, 0, 0),
-    )
-    glMat = glRot * glMat
-
-    glRot.initFromParameters(
-        math.radians(rz),
-        cccorelib.CCVector3(0, 0, 1),
-        cccorelib.CCVector3(0, 0, 0),
-    )
-    glMat = glRot * glMat
-
-    translation = glMat.getTranslationAsVec3D()
-    translation = translation + center
-    glMat.setTranslation(translation)
-
-    # glMat.xRotation(rx)
-    # glMat.yRotation(ry)
-    # glMat.zRotation(rz)
-
-    entity.setGLTransformation(glMat)
-    entity.applyGLTransformation_recursive()
-
-    pycc.GetInstance().redrawAll()
-    pycc.GetInstance().refreshAll()
-    pycc.GetInstance().updateUI()
-    return entity
 
 
 def nth_neibour_distance(points, nth=4):
@@ -179,11 +67,6 @@ class PCD:
                 )
             )
             print("pointcloud has ", len(self.patch_recover), "cluster")
-
-            # for p in self.patch_recover:
-            #   print(p)
-            #   p.paint_uniform_color(random_color())
-            # o3d.visualization.draw_geometries(self.patch_recover)
 
         if split_patch:
             self.split_patch()
@@ -395,8 +278,6 @@ class Mesh:
     def __init__(self, mesh):
         self.mesh = mesh
         self.mesh.translate(-self.mesh.get_center())
-        # center = np.mean(self.mesh.getAssociatedCloud().points(), axis=0)
-        # self.mesn = pycc_translation(self.mesh, x=-center[0], y=-center[1], z=-center[2], scale_x=1, scale_y=1, scale_z=1)
 
     def sample_pcd(self, w, depth=6):
         max = self.mesh.get_max_bound()
@@ -445,7 +326,7 @@ class SemRegPy:
 
     def solve(
         self,
-        comp: ComponentInterface,
+        comp,
         max_eval=Settings.max_eval_fast,
         alg=Settings.opt_alg,
         random=False,
@@ -622,9 +503,6 @@ class SemRegPy:
                         for i in range(len(pts)):
                             fitted = True
                             for j in [0, 1]:
-                                # print('pts[i][j]: ',pts[i][j])
-                                # print(max_bound[j]+self.TABU_RANGE)
-                                # print(min_bound[j]-self.TABU_RANGE)
                                 if (
                                     pts[i][j] > max_bound[j] + self.TABU_RANGE
                                     or pts[i][j]
@@ -658,7 +536,6 @@ class SemRegPy:
                         self.prob.kdtree[hv_id] = o3d.geometry.KDTreeFlann(
                             self.prob.patch[hv_id]
                         )
-
                 else:
                     list_0.append(idx[0])
 
@@ -694,17 +571,24 @@ class SemRegPy:
         else:
             return False
 
-    def load_mesh_file(self, entity, scale=None):
-        self.entity = entity
-        mesh = o3d.io.read_triangle_mesh(
-            entity["fname"], enable_post_processing=True
-        )
+    def load_mesh_file(self, fname: str, scale=None):
+        mesh = o3d.io.read_triangle_mesh(fname, enable_post_processing=True)
         center = mesh.get_center()
         mesh.translate(self.prob.origin.get_center() - center)
         if scale is not None:
             mesh.scale(scale, [0, 0, 0])
         self.mesh = Mesh(mesh)
         self.mesh.center = mesh.get_center()
+        if "column" in fname.lower():
+            return ColumnComponent()
+        elif "office" in fname.lower():
+            return OfficeComponent()
+        elif "room" in fname.lower():
+            return OfficeComponent()
+        elif "door" in fname.lower():
+            return DoorComponent()
+        else:
+            return None
         # mesh = o3d.io.read_triangle_mesh(fname, enable_post_processing = True)
         # mesh_v = mesh.getAssociatedCloud().points()
         # center = np.mean(mesh_v, axis=0)
@@ -720,7 +604,6 @@ class SemRegPy:
         #   self.window.poll_events()
 
     def load_prob_file(self, fname: str):
-        # pcd = npxyz_to_pcd(pcd_np)
         pcd = o3d.io.read_point_cloud(fname)
         # pcd.translate(-pcd.get_center())
         self.prob = PCD(pcd, cluster=True)
@@ -799,57 +682,4 @@ class SemRegPy:
                 if self.VERBOSE:
                     print("\t\t***", self.best_f, self.best_x)
                     # print('current best idx: ', self.iter, idx, self.prob.patch_0[idx])
-
-                # mesh = self.mesh.mesh
-                # # translate to target
-                # shift = self.comp.params['c'] - mesh.get_center()
-                # mesh.translate(shift)
-                # # rotate
-                # rz_change = self.comp.params['rz'] - self.comp.params['rz_display']
-                # R = mesh.get_rotation_matrix_from_xyz((0, 0, -rz_change))
-                # mesh.rotate(R, center=mesh.get_center())
-                # self.comp.params['rz_display'] = self.comp.params['rz']
-
-                # self.new_entity_per_iter[self.iter] = CC.loadFile(self.entity['fname'], params)
-                # print('c: ',self.comp.params['c'])
-                # print('cc center: ',pycc_entity_center(self.entity['entity']))
-                shift = self.comp.params["c"] - pycc_entity_center(
-                    self.entity["entity"]
-                )
-                rz_change = (
-                    self.comp.params["rz"] - self.comp.params["rz_display"]
-                )
-
-                # print('best_c: ',self.comp.params['best_c'])
-                # print('shift: ',shift)
-                # print('rz_change: ',rz_change)
-
-                self.current_entity = pycc_translation(
-                    self.entity["entity"],
-                    x=shift[0],
-                    y=shift[1],
-                    z=shift[2],
-                    rx=0,
-                    ry=0,
-                    rz=rz_change,
-                )
-
-                # self.comp.params['shift_c'] = shift
-                # self.comp.params['shift_rz'] = rz_change
-
-                # if self.window is not None:
-                #   mesh = self.mesh.mesh
-                #   # translate to target
-                #   shift = self.comp.params['c'] - mesh.get_center()
-                #   mesh.translate(shift)
-                #   # rotate
-                #   rz_change = self.comp.params['rz'] - self.comp.params['rz_display']
-                #   R = mesh.get_rotation_matrix_from_xyz((0, 0, -rz_change))
-                #   mesh.rotate(R, center=mesh.get_center())
-                #   self.comp.params['rz_display'] = self.comp.params['rz']
-                #   # update window
-                #   self.window.update_geometry(self.mesh.mesh)
-                #   self.window.update_renderer()
-                #   self.window.poll_events()
-                # self.window.capture_screen_image("log/temp_%04d.jpg" % self.iter)
             return f
