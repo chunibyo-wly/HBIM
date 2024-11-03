@@ -1,6 +1,10 @@
+from tkinter.messagebox import ABORT
+
+
 EXIT = "exit"
 REGISTER_MULTI = "register_multi"
 REGISTER_SINGLE = "register_single"
+ABORT = "abort"
 
 
 class SignalMessage:

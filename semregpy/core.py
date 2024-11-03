@@ -1,12 +1,20 @@
+import copy
+import random
+import time
+
 import nlopt
 import numpy as np
 import open3d as o3d
-import copy
-import time
-from semregpy.component.column import ColumnComponent
-from semregpy.component.door import DoorComponent
-from semregpy.component.office import OfficeComponent
-from utils.settings import Settings
+
+from semregpy import ColumnComponent, DoorComponent, OfficeComponent
+from utils import Settings
+
+
+def random_color():
+    r = random.random()
+    g = random.random()
+    b = random.random()
+    return [r, g, b]
 
 
 def npxyz_to_pcd(np):

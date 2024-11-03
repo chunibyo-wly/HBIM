@@ -1,8 +1,9 @@
 import traceback
 from functools import wraps
-import customtkinter as ctk
-from utils.CTKAlertDialog import CTkAlertDialog
 
+import customtkinter as ctk
+
+from utils.CTKAlertDialog import CTkAlertDialog
 from utils.message import *
 from utils.settings import *
 

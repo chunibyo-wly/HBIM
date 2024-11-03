@@ -8,9 +8,9 @@ import queue
 import threading
 import time
 
-import cccorelib
+import cccorelib  # type: ignore
 import customtkinter as ctk
-import pycc
+import pycc  # type: ignore
 
 CC = pycc.GetInstance()
 ctk.set_default_color_theme("green")
@@ -20,6 +20,7 @@ from semregpy import ColumnComponent, DoorComponent, OfficeComponent, SemRegPy
 from utils import (
     EXIT,
     REGISTER_MULTI,
+    ABORT,
     Settings,
     SignalMessage,
     exception_handler_decorator,
@@ -49,7 +50,7 @@ class MainWindow:
         self.current_mesh = None
         self.json_results = []
         self.mesh_results = set()
-        self.UI_REFRESH = 10
+        self.UI_REFRESH = 1000
 
         self.cmbParaAlg = None
         self.cmbParaIter = None
@@ -190,9 +191,8 @@ class MainWindow:
         ctk.CTkButton(
             self.tabDemo,
             text="停止运行",
-            command=self.register_multi_stop,
+            command=lambda: self.send(SignalMessage(ABORT)),
             font=self.font,
-            state="disabled",
         ).grid(row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2)
 
         # ! Step 5 : match --> export // cur_row : 4
@@ -345,13 +345,15 @@ class MainWindow:
             self.progress_bar.set(value)
             self.root.after(self.UI_REFRESH, self._query_result)
         else:
-            result = self.pipe_out.get()
-            self.progress_bar.set(1)
-            print(result)
-            mesh_candidate = CC.loadFile(self.mesh_path, self.params)
-            CC_translate(
-                mesh_candidate, (result["t"][0], result["t"][1], result["t"][2])
-            )
+            results = self.pipe_out.get()
+            for result in results:
+                self.progress_bar.set(1)
+                print(result)
+                mesh_candidate = CC.loadFile(self.mesh_path, self.params)
+                CC_translate(
+                    mesh_candidate,
+                    (result["t"][0], result["t"][1], result["t"][2]),
+                )
 
     @exception_handler_decorator
     def register_multi(self):
@@ -377,13 +379,11 @@ class MainWindow:
 
 
 @exception_handler_decorator
-def execute_register_multi(params):
+def execute_register_multi(solver, pipe_in, params):
     pcd_path = params["pcd_path"]
     mesh_path = params["mesh_path"]
     bim_family_type = params["bim_family"]
 
-    solver = SemRegPy()
-    solver.VERBOSE = False
     solver.load_prob_file(pcd_path)
     bim_family = None
     if bim_family_type == "Column":
@@ -396,19 +396,35 @@ def execute_register_multi(params):
     tmp = solver.load_mesh_file(mesh_path)
     if bim_family is None:
         bim_family = tmp if tmp is not None else ColumnComponent()
-    result = solver.solve(bim_family, max_eval=200)
 
-    mesh_center = solver.mesh.pcd.origin.get_center()
-    translation = (
-        result["best_c"][0] - mesh_center[0],
-        result["best_c"][1] - mesh_center[1],
-        result["best_c"][2] - mesh_center[2],
-    )
-    rotation = result["best_rz"]
-    return {
-        "t": translation,
-        "R": rotation,
-    }
+    results = []
+    improved = True
+
+    while improved:
+        try:
+            msg = pipe_in.get_nowait()
+            if msg.signal == ABORT:
+                break
+        except queue.Empty:
+            pass
+
+        result = solver.solve(bim_family, max_eval=200)
+        mesh_center = solver.mesh.pcd.origin.get_center()
+        translation = (
+            result["best_c"][0] - mesh_center[0],
+            result["best_c"][1] - mesh_center[1],
+            result["best_c"][2] - mesh_center[2],
+        )
+        rotation = result["best_rz"]
+        results.append(
+            {
+                "t": translation,
+                "R": rotation,
+            }
+        )
+        update = solver.update_kdtree()
+        improved = result["best_f"] < 0.2 and update
+    return results
 
 
 def background_task(pipe_in, pipe_out):
@@ -420,6 +436,8 @@ def background_task(pipe_in, pipe_out):
         Register multiple BIM components
     """
     pycc.ccLog.Warning("Background task started")
+    solver = SemRegPy()
+    solver.VERBOSE = False
     while True:
         try:
             msg = pipe_in.get_nowait()
@@ -428,7 +446,7 @@ def background_task(pipe_in, pipe_out):
                 break
             elif msg_text == REGISTER_MULTI:
                 params = msg.message
-                result = execute_register_multi(params)
+                result = execute_register_multi(solver, pipe_in, params)
                 pipe_out.put(result)
         except queue.Empty:
             pass
