@@ -1,6 +1,7 @@
 import math
 import os
 import sys
+import psutil
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(WORKSPACE)
@@ -438,6 +439,9 @@ def background_task(pipe_in, pipe_out):
     pycc.ccLog.Warning("Background task started")
     solver = SemRegPy()
     solver.VERBOSE = False
+
+    p = psutil.Process(os.getpid())
+    p.nice(psutil.IDLE_PRIORITY_CLASS)  # Windows 低优先级
     while True:
         try:
             msg = pipe_in.get_nowait()
