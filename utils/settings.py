@@ -7,13 +7,11 @@ class Settings:
     max_eval_fast = 1000
     opt_alg = nlopt.GN_DIRECT  # LN_NEWUOA
     algorithms = {
-        "nlopt": [
-            nlopt.GN_DIRECT,
-            nlopt.GN_MLSL,
-            nlopt.LN_BOBYQA,
-            nlopt.LN_NEWUOA_BOUND,
-            nlopt.LN_NELDERMEAD,
-        ]
+        "GN_DIRECT": nlopt.GN_DIRECT,
+        "GN_MLSL": nlopt.GN_MLSL,
+        "LN_BOBYQA": nlopt.LN_BOBYQA,
+        "LN_NEWUOA_BOUND": nlopt.LN_NEWUOA_BOUND,
+        "LN_NELDERMEAD": nlopt.LN_NELDERMEAD,
     }  # 42-43
     all_algorithms = {
         "nlopt": [

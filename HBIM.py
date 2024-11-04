@@ -1,5 +1,8 @@
 import os
+import re
+from statistics import variance
 import sys
+from tkinter import SE, font
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(WORKSPACE)
@@ -60,7 +63,7 @@ class MainWindow:
 
         self.pipe_in = pipe_in
         self.pipe_out = pipe_out
-        self.variable = None
+        self.family_variable = None
         self.pcd_path = None
         self.CC_pcd = None
         self.mesh_path = None
@@ -142,12 +145,12 @@ class MainWindow:
             anchor="w",
             font=self.font,
         ).grid(column=0, row=cur_row, sticky="ew")
-        self.variable = ctk.StringVar()
+        self.family_variable = ctk.StringVar()
         ctk.CTkComboBox(
             self.tabDemo,
-            width=30,
             state="readonly",
-            variable=self.variable,
+            variable=self.family_variable,
+            font=self.font,
             values=("Column", "Door", "Office"),
         ).grid(row=cur_row, column=1, columnspan=2, sticky="ew", padx=2)
         self.mesh_select_btn = ctk.CTkButton(
@@ -223,10 +226,61 @@ class MainWindow:
             self.tabDemo.grid_columnconfigure(i, weight=1)  # 列随着窗口变化
 
     def initTabSetup(self):
-        pass
+        cur_row = 0
+        cur_row += 1
+        ctk.CTkLabel(
+            self.tabSetup,
+            text="1. 选择优化算法",
+            anchor="w",
+            font=self.font,
+        ).grid(row=cur_row, column=0, sticky="ew")
+        self.algo_variable = ctk.StringVar(
+            value=list(Settings.algorithms.keys())[0]
+        )
+        ctk.CTkComboBox(
+            self.tabSetup,
+            variable=self.algo_variable,
+            state="readonly",
+            values=list(Settings.algorithms.keys()),
+            font=self.font,
+        ).grid(row=cur_row, column=1, sticky="ew", padx=2)
+
+        cur_row += 1
+        ctk.CTkLabel(
+            self.tabSetup,
+            text="2. 最大迭代次数",
+            anchor="w",
+            font=self.font,
+        ).grid(row=cur_row, column=0, sticky="ew")
+        self.iteration_num_variable = ctk.StringVar(value="200")
+        ctk.CTkEntry(
+            self.tabSetup,
+            textvariable=self.iteration_num_variable,
+            font=self.font,
+            placeholder_text="Input the number of iterations to register",
+        ).grid(row=cur_row, column=1, sticky="ew", padx=2)
+
+        for i in range(2):
+            self.tabSetup.grid_columnconfigure(i, weight=1)  # 列随着窗口变化
 
     def initTabAPI(self):
-        pass
+        # Tab 4 ========= tabAPI ==============
+
+        self.scrAPI = ctk.CTkTextbox(
+            self.tabAPI,
+            corner_radius=0,
+            font=ctk.CTkFont(family="LXGW WenKai", size=16),
+        )
+        self.scrAPI.pack(expand=True, fill="both")
+        self.scrAPI.insert(
+            ctk.INSERT,
+            """\
+    动态建模插件 SemRegPy
+
+    API 细节请参考开发文档。
+""",
+        )
+        self.scrAPI.configure(state=ctk.DISABLED)
 
     def initTabAbout(self):
         # Tab 4 ========= tabAbout ==============
@@ -302,11 +356,11 @@ class MainWindow:
         print(f"Selected file: {self.mesh_path}")
         # BIM family
         if "column" in self.mesh_path.lower():
-            self.variable.set("Column")
+            self.family_variable.set("Column")
         elif "door" in self.mesh_path.lower():
-            self.variable.set("Door")
+            self.family_variable.set("Door")
         elif "office" in self.mesh_path.lower():
-            self.variable.set("Office")
+            self.family_variable.set("Office")
 
     @exception_handler_decorator
     def select_target_BIM_compp(self):
@@ -323,7 +377,9 @@ class MainWindow:
         msg.message = {
             "pcd_path": self.pcd_path,
             "mesh_path": self.mesh_path,
-            "bim_family": self.variable,
+            "bim_family": self.family_variable.get(),
+            "iteration": int(self.iteration_num_variable.get()),
+            "algorithm": self.algo_variable.get(),
         }
         self.pipe_in.put(msg)
         self.progress_bar.set(0)
@@ -337,7 +393,7 @@ class MainWindow:
             return 1 - math.pow(2, -10 * t) if t < 0.95 else 0.95
 
         elapsed = time.time() - self.process_start_time
-        progress_ratio = min(elapsed / 2, 0.95)  # 进度时间比例
+        progress_ratio = min(elapsed / 10, 0.95)  # 进度时间比例
         eased_progress = ease_out_expo(progress_ratio)  # 应用缓动函数
         return eased_progress
 
@@ -352,7 +408,7 @@ class MainWindow:
                 self.progress_bar.set(1)
                 CTkAlertDialog(
                     title="HBIM Information",
-                    text="配准完成",
+                    text="重建完成",
                     font=ctk.CTkFont(family="LXGW WenKai", size=22),
                 )
                 return
@@ -373,16 +429,14 @@ class MainWindow:
         msg.message = {
             "pcd_path": self.pcd_path,
             "mesh_path": self.mesh_path,
-            "bim_family": self.variable,
+            "bim_family": self.family_variable.get(),
+            "iteration": int(self.iteration_num_variable.get()),
+            "algorithm": self.algo_variable.get(),
         }
         self.pipe_in.put(msg)
         self.progress_bar.set(0)
         self.process_start_time = time.time()
         self.root.after(self.UI_REFRESH, self._query_result)
-
-    @exception_handler_decorator
-    def register_multi_stop(self):
-        raise NotImplementedError("Not implemented yet")
 
     @exception_handler_decorator
     def export_json(self):
@@ -412,11 +466,15 @@ def load_and_prepare_solver(solver, pcd_path, mesh_path, bim_family_type):
 
 
 @exception_handler_decorator
-def solve_and_send_results(solver, bim_family, pipe_out):
+def solve_and_send_results(
+    solver, bim_family, pipe_out, iteration=200, algorithm="GN_DIRECT"
+):
     """
     Helper function to solve the problem and send results.
     """
-    result = solver.solve(bim_family, max_eval=200)
+    result = solver.solve(
+        bim_family, max_eval=iteration, alg=Settings.algorithms[algorithm]
+    )
     mesh_center = solver.mesh.pcd.origin.get_center()
 
     translation = (
