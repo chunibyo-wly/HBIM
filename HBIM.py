@@ -56,23 +56,7 @@ def CC_transform(entity, translation=(0.0, 0.0, 0.0), rz=0.0):
 class MainWindow:
     def __init__(self, pipe_in, pipe_out):
         CC.freezeUI(False)
-
-        # self.solver = SemRegPy()
-        # self.solver.VERBOSE = False
-        self.current_mesh = None
-        self.json_results = []
-        self.mesh_results = set()
         self.UI_REFRESH = 1000
-
-        self.cmbParaAlg = None
-        self.cmbParaIter = None
-        self.cmbParaIter_complex = None
-        self.cmbParaRefresh = None
-
-        self.targetcloud = {}
-        self.targetBIMcomp = {}
-        # self.cc_mesh_result = pycc.ccHObject("Result")
-        # CC.addToDB(self.cc_mesh_result)
 
         self.pipe_in = pipe_in
         self.pipe_out = pipe_out
@@ -496,6 +480,7 @@ def execute_register_multi(solver, pipe_in, pipe_out, params):
         improved = best_f < 0.2 and update
 
         # Wait for a short time before next iteration
+        pipe_out.put(msg)
         time.sleep(1)
 
     # Signal that the process is done

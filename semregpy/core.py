@@ -452,12 +452,6 @@ class SemRegPy:
         self.param = param
 
         return param
-        # if self.window is not None:
-        #  shift = param['c'] - self.mesh.mesh.get_center()
-        #  self.mesh.mesh.translate(shift)
-        #  self.window.update_geometry(self.mesh.mesh)
-        #  self.window.update_renderer()
-        #  self.window.poll_events()
 
     def transformation(self, pcd, param):
         translation = param["best_c"]
