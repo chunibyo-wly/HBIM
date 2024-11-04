@@ -1,16 +1,16 @@
-import math
 import os
 import sys
-import psutil
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(WORKSPACE)
+import math
 import queue
 import threading
 import time
 
 import cccorelib  # type: ignore
 import customtkinter as ctk
+import numpy as np
 import pycc  # type: ignore
 
 CC = pycc.GetInstance()
@@ -19,16 +19,18 @@ ctk.FontManager.load_font(os.path.join(WORKSPACE, "LXGWWenKai.ttf"))
 
 from semregpy import ColumnComponent, DoorComponent, OfficeComponent, SemRegPy
 from utils import (
+    ABORT,
     EXIT,
     REGISTER_MULTI,
-    ABORT,
+    REGISTER_SINGLE,
+    CTkAlertDialog,
     Settings,
     SignalMessage,
     exception_handler_decorator,
 )
 
 
-def CC_translate(entity, translation=(0.0, 0.0, 0.0)):
+def CC_transform(entity, translation=(0.0, 0.0, 0.0), rz=0.0):
     x, y, z = translation
     glMat = entity.getGLTransformation()
     translation = glMat.getTranslationAsVec3D()
@@ -37,8 +39,17 @@ def CC_translate(entity, translation=(0.0, 0.0, 0.0)):
     translation.z += z
     glMat.setTranslation(translation)
 
+    glRot = pycc.ccGLMatrix()
+    glRot.initFromParameters(
+        math.radians(rz),
+        cccorelib.CCVector3(0, 0, 1),
+        cccorelib.CCVector3(0, 0, 0),
+    )
+    glMat = glMat * glRot
+
     entity.setGLTransformation(glMat)
     entity.applyGLTransformation_recursive()
+    entity.setSelected(True)
     CC.redrawAll()
 
 
@@ -178,7 +189,6 @@ class MainWindow:
             text="单步配准",
             command=self.register_single,
             font=self.font,
-            state="disabled",
         )
         self.process_btn.grid(
             row=cur_row, column=1, columnspan=1, sticky="ew", pady=5, padx=2
@@ -287,7 +297,6 @@ class MainWindow:
         self.pcd_select_btn.configure(text=os.path.basename(pcd_path))
         print(f"Selected file: {self.pcd_path}")
         self.CC_pcd = CC.loadFile(self.pcd_path, self.params)
-        self.process_btn.configure(state="normal")
 
     @exception_handler_decorator
     def select_target_file(self):
@@ -326,7 +335,16 @@ class MainWindow:
 
     @exception_handler_decorator
     def register_single(self):
-        raise NotImplementedError("Not implemented yet")
+        msg = SignalMessage(REGISTER_SINGLE)
+        msg.message = {
+            "pcd_path": self.pcd_path,
+            "mesh_path": self.mesh_path,
+            "bim_family": self.variable,
+        }
+        self.pipe_in.put(msg)
+        self.progress_bar.set(0)
+        self.process_start_time = time.time()
+        self.root.after(self.UI_REFRESH, self._query_result)
 
     @exception_handler_decorator
     def _progress_fake(self):
@@ -344,17 +362,26 @@ class MainWindow:
         if self.pipe_out.empty():
             value = self._progress_fake()
             self.progress_bar.set(value)
-            self.root.after(self.UI_REFRESH, self._query_result)
         else:
-            results = self.pipe_out.get()
-            for result in results:
+            result = self.pipe_out.get()
+            if result == "STOP":
                 self.progress_bar.set(1)
+                CTkAlertDialog(
+                    title="HBIM Information",
+                    text="配准完成",
+                    font=ctk.CTkFont(family="LXGW WenKai", size=22),
+                )
+                return
+            else:
                 print(result)
                 mesh_candidate = CC.loadFile(self.mesh_path, self.params)
-                CC_translate(
+                CC_transform(
                     mesh_candidate,
                     (result["t"][0], result["t"][1], result["t"][2]),
                 )
+                CC.updateUI()
+                CC.redrawAll()
+        self.root.after(self.UI_REFRESH, self._query_result)
 
     @exception_handler_decorator
     def register_multi(self):
@@ -366,7 +393,6 @@ class MainWindow:
         }
         self.pipe_in.put(msg)
         self.progress_bar.set(0)
-        self.root.update()
         self.process_start_time = time.time()
         self.root.after(self.UI_REFRESH, self._query_result)
 
@@ -380,13 +406,13 @@ class MainWindow:
 
 
 @exception_handler_decorator
-def execute_register_multi(solver, pipe_in, params):
-    pcd_path = params["pcd_path"]
-    mesh_path = params["mesh_path"]
-    bim_family_type = params["bim_family"]
-
+def load_and_prepare_solver(solver, pcd_path, mesh_path, bim_family_type):
+    """
+    Helper function to load files and prepare the bim_family component.
+    """
     solver.load_prob_file(pcd_path)
     bim_family = None
+
     if bim_family_type == "Column":
         bim_family = ColumnComponent()
     elif bim_family_type == "Door":
@@ -398,10 +424,63 @@ def execute_register_multi(solver, pipe_in, params):
     if bim_family is None:
         bim_family = tmp if tmp is not None else ColumnComponent()
 
-    results = []
-    improved = True
+    return bim_family
 
+
+@exception_handler_decorator
+def solve_and_send_results(solver, bim_family, pipe_out):
+    """
+    Helper function to solve the problem and send results.
+    """
+    result = solver.solve(bim_family, max_eval=200)
+    mesh_center = solver.mesh.pcd.origin.get_center()
+
+    translation = (
+        result["best_c"][0] - mesh_center[0],
+        result["best_c"][1] - mesh_center[1],
+        result["best_c"][2] - mesh_center[2],
+    )
+    rotation = result["best_rz"]
+
+    msg = {
+        "t": translation,
+        "R": np.rad2deg(rotation),  # convert rotation to degrees
+    }
+
+    return msg, result["best_f"]
+
+
+@exception_handler_decorator
+def execute_register_single(solver, pipe_out, params):
+    """
+    Handles the registration process for a single component.
+    """
+    # Load and prepare the solver
+    bim_family = load_and_prepare_solver(
+        solver, params["pcd_path"], params["mesh_path"], params["bim_family"]
+    )
+
+    # Solve and send results
+    msg, _ = solve_and_send_results(solver, bim_family, pipe_out)
+    solver.update_kdtree()
+    # Signal that the process is done
+    pipe_out.put(msg)
+    pipe_out.put("STOP")
+
+
+@exception_handler_decorator
+def execute_register_multi(solver, pipe_in, pipe_out, params):
+    """
+    Handles the registration process for multiple components, with continuous improvement.
+    """
+    # Load and prepare the solver
+    bim_family = load_and_prepare_solver(
+        solver, params["pcd_path"], params["mesh_path"], params["bim_family"]
+    )
+
+    improved = True
     while improved:
+        # Check for abort signal
         try:
             msg = pipe_in.get_nowait()
             if msg.signal == ABORT:
@@ -409,23 +488,18 @@ def execute_register_multi(solver, pipe_in, params):
         except queue.Empty:
             pass
 
-        result = solver.solve(bim_family, max_eval=200)
-        mesh_center = solver.mesh.pcd.origin.get_center()
-        translation = (
-            result["best_c"][0] - mesh_center[0],
-            result["best_c"][1] - mesh_center[1],
-            result["best_c"][2] - mesh_center[2],
-        )
-        rotation = result["best_rz"]
-        results.append(
-            {
-                "t": translation,
-                "R": rotation,
-            }
-        )
+        # Solve and send results
+        msg, best_f = solve_and_send_results(solver, bim_family, pipe_out)
+
+        # Check for improvement and update k-d tree
         update = solver.update_kdtree()
-        improved = result["best_f"] < 0.2 and update
-    return results
+        improved = best_f < 0.2 and update
+
+        # Wait for a short time before next iteration
+        time.sleep(1)
+
+    # Signal that the process is done
+    pipe_out.put("STOP")
 
 
 def background_task(pipe_in, pipe_out):
@@ -440,18 +514,18 @@ def background_task(pipe_in, pipe_out):
     solver = SemRegPy()
     solver.VERBOSE = False
 
-    p = psutil.Process(os.getpid())
-    p.nice(psutil.IDLE_PRIORITY_CLASS)  # Windows 低优先级
     while True:
         try:
             msg = pipe_in.get_nowait()
             msg_text = msg.signal
             if msg_text == EXIT:
                 break
+            elif msg_text == REGISTER_SINGLE:
+                params = msg.message
+                execute_register_single(solver, pipe_out, params)
             elif msg_text == REGISTER_MULTI:
                 params = msg.message
-                result = execute_register_multi(solver, pipe_in, params)
-                pipe_out.put(result)
+                execute_register_multi(solver, pipe_in, pipe_out, params)
         except queue.Empty:
             pass
         time.sleep(0.1)

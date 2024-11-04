@@ -1,4 +1,5 @@
 import copy
+import os
 import random
 import time
 
@@ -332,6 +333,8 @@ class SemRegPy:
     def __init__(self, lib="nlopt"):
         self.library = lib
 
+        self.pcd_cache_path = ""
+
     def solve(
         self,
         comp,
@@ -612,6 +615,11 @@ class SemRegPy:
         #   self.window.poll_events()
 
     def load_prob_file(self, fname: str):
+        if os.path.isfile(self.pcd_cache_path) and os.path.samefile(
+            self.pcd_cache_path, fname
+        ):
+            return
+        self.pcd_cache_path = fname
         pcd = o3d.io.read_point_cloud(fname)
         # pcd.translate(-pcd.get_center())
         self.prob = PCD(pcd, cluster=True)
