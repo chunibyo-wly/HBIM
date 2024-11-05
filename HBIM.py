@@ -1,3 +1,4 @@
+from email.mime import base
 import os
 import re
 from statistics import variance
@@ -203,8 +204,8 @@ class MainWindow:
         ).grid(column=0, row=cur_row, sticky="ew", padx=2)
         ctk.CTkButton(
             self.tabDemo,
-            text="存储路径选择",
-            command=self.export_json,
+            text="HBIM 模型导出",
+            command=self.export_models,
             font=self.font,
         ).grid(row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2)
 
@@ -439,8 +440,36 @@ class MainWindow:
         self.root.after(self.UI_REFRESH, self._query_result)
 
     @exception_handler_decorator
-    def export_json(self):
-        raise NotImplementedError("Not implemented yet")
+    def export_models(self):
+        folder_selected = ctk.filedialog.askdirectory()
+        if not folder_selected:
+            return
+
+        self.progress_bar.set(0)
+        entities = CC.dbRootObject()
+        for i in range(entities.getChildrenNumber()):
+            entity = entities.getChild(i)
+            if entity.isHierarchy():
+                entity = entity.getChild(0)
+            if isinstance(entity, pycc.ccMesh):
+                file_name = entity.getName()
+                basename, _ = os.path.splitext(os.path.basename(file_name))
+                print(f"Exporting {basename}")
+                pycc.FileIOFilter.SaveToFile(
+                    entity,
+                    os.path.join(
+                        folder_selected, f"{str(i).zfill(2)}_{basename}.obj"
+                    ),
+                    pycc.FileIOFilter.SaveParameters(),
+                )
+            self.progress_bar.set((i + 1) / entities.getChildrenNumber())
+            self.root.update()
+        self.progress_bar.set(1)
+        CTkAlertDialog(
+            title="HBIM Information",
+            text="模型导出完成",
+            font=ctk.CTkFont(family="LXGW WenKai", size=22),
+        )
 
 
 @exception_handler_decorator
