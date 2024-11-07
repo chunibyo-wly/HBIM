@@ -2,9 +2,6 @@ import nlopt
 
 
 class Settings:
-    folder_gt = "../data/gt1/"
-    folder_export = "../data/results/"
-    max_eval_fast = 1000
     opt_alg = nlopt.GN_DIRECT  # LN_NEWUOA
     algorithms = {
         "GN_DIRECT": nlopt.GN_DIRECT,
@@ -48,5 +45,13 @@ class Settings:
             nlopt.GN_AGS,
         ]
     }  # 42-43
-    pcd_test_path = r"data/test/MA-room1-2cm.ply"
-    mesh_test_path = r"data/comp/column1.obj"
+    pcd_test_path = [
+        r"data/test/MA-room1-2cm.ply",
+        r"data/prob/25_Parking_01_F2_door.ply",
+        r"data/prob/pauly_room_0_chair.ply",
+    ]
+    mesh_test_path = [
+        r"data/comp/column1.obj",
+        r"data/door/Door190x110.obj",
+        r"data/comp/OfficeChair_1.obj",
+    ]

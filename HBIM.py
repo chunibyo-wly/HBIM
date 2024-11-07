@@ -116,10 +116,22 @@ class MainWindow:
         ).grid(row=cur_row, column=0, sticky="ew")
         ctk.CTkButton(
             self.tabDemo,
-            text="加载预设测试文件",
-            command=self.loadall,
+            text="Column 预设",
+            command=lambda: self.loadall(0),
             font=self.font,
-        ).grid(row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2)
+        ).grid(row=cur_row, column=1, columnspan=1, sticky="ew", pady=5, padx=2)
+        ctk.CTkButton(
+            self.tabDemo,
+            text="Door 预设",
+            command=lambda: self.loadall(1),
+            font=self.font,
+        ).grid(row=cur_row, column=2, columnspan=1, sticky="ew", pady=5, padx=2)
+        ctk.CTkButton(
+            self.tabDemo,
+            text="Chair 预设",
+            command=lambda: self.loadall(2),
+            font=self.font,
+        ).grid(row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2)
 
         # ! Step 2 : select a target cloud // cur_row : 1
         cur_row += 1
@@ -326,9 +338,13 @@ class MainWindow:
         return entities
 
     @exception_handler_decorator
-    def loadall(self):
-        self._set_pcd_path(os.path.join(WORKSPACE, Settings.pcd_test_path))
-        self._set_mesh_path(os.path.join(WORKSPACE, Settings.mesh_test_path))
+    def loadall(self, presets):
+        self._set_pcd_path(
+            os.path.join(WORKSPACE, Settings.pcd_test_path[presets])
+        )
+        self._set_mesh_path(
+            os.path.join(WORKSPACE, Settings.mesh_test_path[presets])
+        )
         CC.updateUI()
 
     @exception_handler_decorator
@@ -392,10 +408,10 @@ class MainWindow:
     def _progress_fake(self):
         # 缓动函数：指数衰减（先快后慢）
         def ease_out_expo(t):
-            return 1 - math.pow(2, -10 * t) if t < 0.95 else 0.95
+            return 1 - math.pow(2, -10 * t) if t < 0.65 else 0.65
 
         elapsed = time.time() - self.process_start_time
-        progress_ratio = min(elapsed / 10, 0.95)  # 进度时间比例
+        progress_ratio = min(elapsed / 10, 0.65)  # 进度时间比例
         eased_progress = ease_out_expo(progress_ratio)  # 应用缓动函数
         return eased_progress
 

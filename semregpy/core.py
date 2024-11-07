@@ -338,7 +338,7 @@ class SemRegPy:
     def solve(
         self,
         comp,
-        max_eval=Settings.max_eval_fast,
+        max_eval=200,
         alg=Settings.opt_alg,
         random=False,
         resort=False,
