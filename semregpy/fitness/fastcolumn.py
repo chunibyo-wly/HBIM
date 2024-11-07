@@ -1,10 +1,6 @@
 import numpy as np
 import open3d as o3d
 
-from core.fitness.interface import *
-
-from gprMax.tools.outputfiles_merge import get_output_data
-
 
 class PCD:
     origin = None

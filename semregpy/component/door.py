@@ -1,5 +1,4 @@
 import numpy as np
-import json
 
 from semregpy.component.interface import *
 

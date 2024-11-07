@@ -35,14 +35,8 @@ from utils import (
 
 
 def CC_transform(entity, translation=(0.0, 0.0, 0.0), rz=0.0):
-    x, y, z = translation
-    glMat = entity.getGLTransformation()
-    translation = glMat.getTranslationAsVec3D()
-    translation.x += x
-    translation.y += y
-    translation.z += z
-    glMat.setTranslation(translation)
 
+    glMat = entity.getGLTransformation()
     glRot = pycc.ccGLMatrix()
     glRot.initFromParameters(
         math.radians(rz),
@@ -50,6 +44,13 @@ def CC_transform(entity, translation=(0.0, 0.0, 0.0), rz=0.0):
         cccorelib.CCVector3(0, 0, 0),
     )
     glMat = glMat * glRot
+
+    x, y, z = translation
+    translation = glMat.getTranslationAsVec3D()
+    translation.x += x
+    translation.y += y
+    translation.z += z
+    glMat.setTranslation(translation)
 
     entity.setGLTransformation(glMat)
     entity.applyGLTransformation_recursive()
@@ -419,6 +420,7 @@ class MainWindow:
                 CC_transform(
                     mesh_candidate,
                     (result["t"][0], result["t"][1], result["t"][2]),
+                    result["R"],
                 )
                 CC.updateUI()
                 CC.redrawAll()
@@ -504,6 +506,7 @@ def solve_and_send_results(
     result = solver.solve(
         bim_family, max_eval=iteration, alg=Settings.algorithms[algorithm]
     )
+    print(result)
     mesh_center = solver.mesh.pcd.origin.get_center()
 
     translation = (

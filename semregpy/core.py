@@ -193,7 +193,7 @@ class PCD:
         cluster_center_list = []
 
         for i in cluster_new:
-            if i.shape[0] > 5000:
+            if i.shape[0] > min(len(points.points) * 0.05, 5000):
                 i_pcd = npxyz_to_pcd(i[:, :3])
                 i_box = i_pcd.get_axis_aligned_bounding_box()
                 i_box_extend = i_box.get_extent()
@@ -485,7 +485,7 @@ class SemRegPy:
                     < 0.5
                 ):
                     list_0.append(i)
-
+            print("STEP1 list_0: ", list_0)
             if list_0 == []:
                 v_cluster = np.prod(
                     self.prob.patch_recover[idx[0]].get_max_bound()
@@ -544,6 +544,7 @@ class SemRegPy:
                 else:
                     list_0.append(idx[0])
 
+            print("STEP2 list_0: ", list_0)
             if list_0 != []:
                 fitted_pc = self.prob.patch_recover[list_0[0]]
                 # o3d.visualization.draw_geometries([fitted_pc, self.mesh_pcd, p])
@@ -554,23 +555,30 @@ class SemRegPy:
                 )
 
                 for hv_id in [0, 1]:
-                    sel = []
+                    sel = set()
                     for i in range(fitted_pc.shape[0]):
                         k, idx, _ = self.prob.kdtree[
                             hv_id
-                        ].search_hybrid_vector_3d(fitted_pc[i], 0.01, 1)
-                        try:
-                            sel.append(idx[0])
-                        except:
-                            pass
-
+                        ].search_radius_vector_3d(fitted_pc[i], 0.1)
+                        sel = sel.union(set(idx))
+                    sel = list(sel)
+                    print("len(sel): ", len(sel))
                     self.prob.patch[hv_id] = self.prob.patch[
                         hv_id
                     ].select_by_index(sel, invert=True)
+                    obb = self.mesh_pcd.get_oriented_bounding_box()
+                    obb_width = (obb.extent[0] + obb.extent[1]) / 2
+                    obb_tabu_width = obb_width + self.TABU_RANGE * 2
+                    obb.scale(
+                        obb_tabu_width / obb_width, center=obb.get_center()
+                    )
+                    print("obb.extent: ", obb.extent)
+                    self.prob.patch[hv_id] = self.prob.patch[hv_id].crop(
+                        obb, invert=True
+                    )
                     self.prob.kdtree[hv_id] = o3d.geometry.KDTreeFlann(
                         self.prob.patch[hv_id]
                     )
-
             # o3d.visualization.draw_geometries([self.prob.patch[0], self.prob.patch[1]])
             return True
         else:
