@@ -6,6 +6,7 @@ import customtkinter as ctk
 from utils.CTKAlertDialog import CTkAlertDialog
 from utils.message import *
 from utils.settings import *
+from utils.dynamo_generate import export_dynamo
 
 
 def exception_handler_decorator(func):

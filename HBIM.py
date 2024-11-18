@@ -1,9 +1,6 @@
-from email.mime import base
+import json
 import os
-import re
-from statistics import variance
 import sys
-from tkinter import SE, font
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(WORKSPACE)
@@ -22,16 +19,9 @@ ctk.set_default_color_theme("green")
 ctk.FontManager.load_font(os.path.join(WORKSPACE, "LXGWWenKai.ttf"))
 
 from semregpy import ColumnComponent, DoorComponent, OfficeComponent, SemRegPy
-from utils import (
-    ABORT,
-    EXIT,
-    REGISTER_MULTI,
-    REGISTER_SINGLE,
-    CTkAlertDialog,
-    Settings,
-    SignalMessage,
-    exception_handler_decorator,
-)
+from utils import (ABORT, EXIT, REGISTER_MULTI, REGISTER_SINGLE,
+                   CTkAlertDialog, Settings, SignalMessage,
+                   exception_handler_decorator, export_dynamo)
 
 
 def CC_transform(entity, translation=(0.0, 0.0, 0.0), rz=0.0):
@@ -73,6 +63,7 @@ class MainWindow:
         self.params = pycc.FileIOFilter.LoadParameters()
         self.params.parentWidget = CC.getMainWindow()
         self.params.alwaysDisplayLoadDialog = False
+        self.transformation_list = []
         self.initUI()
 
     @exception_handler_decorator
@@ -220,7 +211,14 @@ class MainWindow:
             text="HBIM 模型导出",
             command=self.export_models,
             font=self.font,
-        ).grid(row=cur_row, column=1, columnspan=3, sticky="ew", pady=5, padx=2)
+        ).grid(row=cur_row, column=1, columnspan=2, sticky="ew", pady=5, padx=2)
+
+        ctk.CTkButton(
+            self.tabDemo,
+            text="Dynamo",
+            command=self.export_dynamo,
+            font=self.font,
+        ).grid(row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2)
 
         cur_row += 1
         self.progress_bar = ctk.CTkProgressBar(
@@ -365,6 +363,7 @@ class MainWindow:
         )
         if tmp is None or tmp == "":
             return
+        self.transformation_list = []
         self._set_pcd_path(tmp)
 
     @exception_handler_decorator
@@ -387,6 +386,7 @@ class MainWindow:
         )
         if tmp is None or tmp == "":
             return
+        self.transformation_list = []
         self._set_mesh_path(tmp)
 
     @exception_handler_decorator
@@ -433,11 +433,13 @@ class MainWindow:
             else:
                 print(result)
                 mesh_candidate = CC.loadFile(self.mesh_path, self.params)
+                (x, y, z), R = result["t"], result["R"]
                 CC_transform(
                     mesh_candidate,
-                    (result["t"][0], result["t"][1], result["t"][2]),
-                    result["R"],
+                    (x, y, z),
+                    R,
                 )
+                self.transformation_list.append((x, y, z, R))
                 CC.updateUI()
                 CC.redrawAll()
         self.root.after(self.UI_REFRESH, self._query_result)
@@ -488,6 +490,24 @@ class MainWindow:
             text="模型导出完成",
             font=ctk.CTkFont(family="LXGW WenKai", size=22),
         )
+
+    @exception_handler_decorator
+    def export_dynamo(self):
+        filetypes = [("Dynamo Files", "*.dyn")]
+
+        # Open the save file dialog
+        file_path = ctk.filedialog.asksaveasfilename(
+            defaultextension=".dyn",  # Default extension if the user doesn't add one
+            filetypes=filetypes,  # Only allow specific file types
+            title="Save your Dynamo file",
+        )
+
+        # If a file path is selected, print it (you can add your save logic here)
+        if file_path:
+            print(f"File saved at: {file_path}")
+            data = json.dumps(export_dynamo(self.transformation_list), indent=4)
+            with open(file_path, "w") as f:
+                f.write(data)
 
 
 @exception_handler_decorator
