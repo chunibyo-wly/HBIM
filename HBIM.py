@@ -2,6 +2,7 @@ import json
 import os
 import sys
 
+GUI = True
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(WORKSPACE)
 import math
@@ -9,27 +10,39 @@ import queue
 import threading
 import time
 
-import cccorelib  # type: ignore
 import customtkinter as ctk
 import numpy as np
-import pycc  # type: ignore
 
-CC = pycc.GetInstance()
+if GUI:
+    import cccorelib  # type: ignore
+    import pycc  # type: ignore
+
+    CC = pycc.GetInstance()
+
 ctk.set_default_color_theme("green")
 ctk.FontManager.load_font(os.path.join(WORKSPACE, "LXGWWenKai.ttf"))
 
 from semregpy import ColumnComponent, DoorComponent, OfficeComponent, SemRegPy
-from utils import (ABORT, EXIT, REGISTER_MULTI, REGISTER_SINGLE,
-                   CTkAlertDialog, Settings, SignalMessage,
-                   exception_handler_decorator, export_dynamo)
+from utils import (
+    ABORT,
+    EXIT,
+    REGISTER_MULTI,
+    REGISTER_SINGLE,
+    CTkAlertDialog,
+    Settings,
+    SignalMessage,
+    exception_handler_decorator,
+    export_dynamo,
+)
 
 
 def CC_transform(entity, translation=(0.0, 0.0, 0.0), rz=0.0):
 
     glMat = entity.getGLTransformation()
     glRot = pycc.ccGLMatrix()
+    print(translation, rz)
     glRot.initFromParameters(
-        math.radians(rz),
+        np.deg2rad(rz),
         cccorelib.CCVector3(0, 0, 1),
         cccorelib.CCVector3(0, 0, 0),
     )
@@ -534,7 +547,7 @@ def load_and_prepare_solver(solver, pcd_path, mesh_path, bim_family_type):
 
 @exception_handler_decorator
 def solve_and_send_results(
-    solver, bim_family, pipe_out, iteration=200, algorithm="GN_DIRECT"
+    solver, bim_family, iteration=200, algorithm="GN_DIRECT"
 ):
     """
     Helper function to solve the problem and send results.
@@ -554,7 +567,7 @@ def solve_and_send_results(
 
     msg = {
         "t": translation,
-        "R": np.rad2deg(rotation),  # convert rotation to degrees
+        "R": -np.rad2deg(rotation),  # convert rotation to degrees
     }
 
     return msg, result["best_f"]
@@ -571,7 +584,7 @@ def execute_register_single(solver, pipe_out, params):
     )
 
     # Solve and send results
-    msg, _ = solve_and_send_results(solver, bim_family, pipe_out)
+    msg, _ = solve_and_send_results(solver, bim_family)
     solver.update_kdtree()
     # Signal that the process is done
     pipe_out.put(msg)
@@ -599,7 +612,7 @@ def execute_register_multi(solver, pipe_in, pipe_out, params):
             pass
 
         # Solve and send results
-        msg, best_f = solve_and_send_results(solver, bim_family, pipe_out)
+        msg, best_f = solve_and_send_results(solver, bim_family)
 
         # Check for improvement and update k-d tree
         update = solver.update_kdtree()
@@ -644,22 +657,37 @@ def background_task(pipe_in, pipe_out):
 
 
 if __name__ == "__main__":
-    """
-    tkinter    ---> pipe_in  ---> background (request)
-    background ---> pipe_out ---> tkinter    (result)
-    """
+    if GUI:
+        """
+        tkinter    ---> pipe_in  ---> background (request)
+        background ---> pipe_out ---> tkinter    (result)
+        """
 
-    pipe_in = queue.Queue()
-    pipe_out = queue.Queue()
-    t = threading.Thread(
-        target=background_task,
-        args=(
-            pipe_in,
-            pipe_out,
-        ),
-        daemon=True,
-    )
-    t.start()
-    MainWindow(pipe_in, pipe_out)
-    pipe_in.put(SignalMessage(EXIT))
-    t.join()
+        pipe_in = queue.Queue()
+        pipe_out = queue.Queue()
+        t = threading.Thread(
+            target=background_task,
+            args=(
+                pipe_in,
+                pipe_out,
+            ),
+            daemon=True,
+        )
+        t.start()
+        MainWindow(pipe_in, pipe_out)
+        pipe_in.put(SignalMessage(EXIT))
+        t.join()
+    else:
+        solver = SemRegPy()
+        solver.VERBOSE = False
+        execute_register_single()
+        bim_family = load_and_prepare_solver(
+            solver,
+            Settings.pcd_test_path[0],
+            r"D:\Dropbox\2024.GIS_award\2024_code\HBIM-master\data\comp\Door 2.obj",
+            "Door",
+        )
+
+        # Solve and send results
+        msg, _ = solve_and_send_results(solver, bim_family)
+        solver.update_kdtree()

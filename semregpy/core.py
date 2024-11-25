@@ -26,7 +26,7 @@ def npxyz_to_pcd(np):
 
 def nth_neibour_distance(points, nth=4):
     """
-    return: mean_4th_distance,std_distance,eps
+    return: mean_4th_distance, std_distance, eps
     """
 
     pcd = o3d.geometry.PointCloud()
@@ -56,20 +56,24 @@ def nth_neibour_distance(points, nth=4):
 
 
 class PCD:
-    origin = None
-    patch = None
-    kdtree = None
-    WEIGHT_NORNAL_ERROR = 0.2
+
+    origin = None  # 原始点云
+    patch = None  # 水平和垂直点云， 0 = horizontal, 1 = vertical
+    kdtree = None  # kdtree， 0 = horizontal, 1 = vertical
+    WEIGHT_NORNAL_ERROR = 0.2  # normal error 权重
 
     def __init__(self, pcd, control_size=None, cluster=False, split_patch=True):
         self.control_size = control_size
         self.origin = pcd  # .voxel_down_sample(voxel_size=0.02)
 
         if cluster:
+            # self.z_ratio, 移除上下z比例
             self.z_ratio = 0.4
+            # 移除上下点云cluster列表
             patch_remove_points = self.remove_outliers(
                 self.origin, z_ratio=self.z_ratio
             )
+            # 恢复cluster列表， 恢复点云中心列表
             self.patch_recover, self.cluster_center_list = (
                 self.recover_outliers(
                     patch_remove_points, self.origin, z_ratio=self.z_ratio
@@ -78,6 +82,7 @@ class PCD:
             print("pointcloud has ", len(self.patch_recover), "cluster")
 
         if split_patch:
+            # 对原始点云进行h,v拆分
             self.split_patch()
 
     def split_patch(self):
@@ -132,9 +137,9 @@ class PCD:
         ratio_v = v[2] / v[0]
 
         new_pcd = o3d.geometry.PointCloud()
-        new_cluster_list = []
-        new_pcd_list_inds = []
-        new_center_list = []
+        new_cluster_list = []  # 恢复点云列表
+        new_pcd_list_inds = []  # 恢复点云列表索引
+        new_center_list = []  # 恢复点云中心列表
         for i, cluster in enumerate(clusters):
             v_cluster = cluster.get_axis_aligned_bounding_box().get_extent()
 
@@ -175,6 +180,9 @@ class PCD:
         # o3d.visualization.draw_geometries([new_pcd])
 
     def split_sort(self, data, label=6):
+        """
+        根据label对数据进行排序
+        """
         sorted_indices = np.argsort(data[:, label])
         points = data[sorted_indices]
         indices = np.unique(points[:, label], return_index=True)[1]
@@ -184,6 +192,8 @@ class PCD:
     def recover_outliers(self, points, ori_points, z_ratio=0.8):
         """
         根据dbscan cluster的结果，将cluster中z轴上的点云恢复成原始点云
+        输入：points：cluster后的点云，ori_points：原始点云，z_ratio：移除上下点云的比例
+        输出：point_list：恢复后的点云列表，cluster_center_list：恢复后的点云cluster中心列表
         """
         cluster_new = self.cluster(points)
         cluster_new = self.split_sort(cluster_new, label=-1)
@@ -193,7 +203,7 @@ class PCD:
         cluster_center_list = []
 
         for i in cluster_new:
-            if i.shape[0] > min(len(points.points) * 0.05, 5000):
+            if i.shape[0] > min(len(points.points) * 0.001, 1000):
                 i_pcd = npxyz_to_pcd(i[:, :3])
                 i_box = i_pcd.get_axis_aligned_bounding_box()
                 i_box_extend = i_box.get_extent()

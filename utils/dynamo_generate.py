@@ -70,7 +70,7 @@ def family_instance_generate_node(transformation_list):
         },
     }
 
-    Node_list_template = [
+    Node_family_type = [
         {
             "ConcreteType": "DSRevitNodesUI.FamilyTypes, DSRevitNodesUI",
             "SelectedIndex": 0,
@@ -91,7 +91,10 @@ def family_instance_generate_node(transformation_list):
             ],
             "Replication": "Disabled",
             "Description": "文档中所有可用族类型。",
-        },
+        }
+    ]
+
+    Node_list_template = [
         {
             "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
             "Id": "6ffd4fe4f01b419bafb92846bcc1eabb",
@@ -408,8 +411,21 @@ def family_instance_generate_node(transformation_list):
     MAPPING = {}
     NODES = []
     CONNECTOR = []
+
+    Node_family_type = copy.deepcopy(Node_family_type)
+    for input in Node_family_type[0]["Inputs"]:
+        new_id = str(uuid.uuid4().hex)
+        MAPPING[input["Id"]] = new_id
+        input["Id"] = new_id
+    for output in Node_family_type[0]["Outputs"]:
+        new_id = str(uuid.uuid4().hex)
+        MAPPING[output["Id"]] = new_id
+        output["Id"] = new_id
+    NODES.extend(Node_family_type)
+
     for i in range(len(transformation_list)):
         x, y, z, rz = transformation_list[i]
+
         node_group = []
         for node in Node_list_template:
             node = copy.deepcopy(node)
@@ -432,6 +448,7 @@ def family_instance_generate_node(transformation_list):
             connector["End"] = MAPPING[connector["End"]]
             connector["Id"] = str(uuid.uuid4().hex)
             CONNECTOR.append(connector)
+            print(connector)
         group = Group_template.copy()
         group["Id"] = str(uuid.uuid4().hex)
         group["Title"] = f"# {i}"
@@ -447,8 +464,11 @@ def export_dynamo(transformation_list):
 
 
 def main():
-    data = json.dumps(family_instance_generate_node(), indent=4)
-    with open("family_instance_generate.dyn", "w") as f:
+    transformation_list = [[10, 0, 0, 0], [0, 10, 0, 0]]
+    data = json.dumps(
+        family_instance_generate_node(transformation_list), indent=4
+    )
+    with open("./family_instance_generate.dyn", "w") as f:
         f.write(data)
 
 
