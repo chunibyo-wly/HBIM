@@ -73,7 +73,7 @@ class PCD:
             patch_remove_points = self.remove_outliers(
                 self.origin, z_ratio=self.z_ratio
             )
-            # 恢复cluster列表， 恢复点云中心列表
+            # 切除上下点云后-dbscan聚类完成再补充切除点云， 恢复点云中心列表
             self.patch_recover, self.cluster_center_list = (
                 self.recover_outliers(
                     patch_remove_points, self.origin, z_ratio=self.z_ratio
@@ -460,6 +460,22 @@ class SemRegPy:
         param["best_f"] = self.best_f
 
         self.param = param
+
+        # ! move z axis in hard code
+        # TODO: should be removed in the future
+        self.mesh_pcd = self.transformation(self.mesh.pcd.patch[0], self.param)
+        obb = self.mesh_pcd.get_axis_aligned_bounding_box()
+        extent = np.array(obb.get_extent())
+        extent[2] = 100000
+        obb2 = o3d.geometry.AxisAlignedBoundingBox(
+            obb.get_min_bound(), obb.get_max_bound()
+        )
+        tmp_pcd = self.prob.origin.crop(obb2)
+        self.param["c"][2] = (
+            self.prob.origin.get_min_bound()[2] #+ obb.get_extent()[2] / 2
+        )
+        # o3d.io.write_point_cloud("tmp.ply", tmp_pcd)
+        # ! move z axis in hard code
 
         return param
 

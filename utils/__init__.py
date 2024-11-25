@@ -27,11 +27,14 @@ def exception_handler_decorator(func):
             print(f"Traceback info: {tb_str}")
 
             # 假设你有一个 CTkAlertDialog 实例，用于显示错误信息
-            CTkAlertDialog(
-                title="HBIM Error",
-                text=str(e),
-                font=ctk.CTkFont(family="LXGW WenKai", size=22),
-            )
+            if Settings.GUI:
+                CTkAlertDialog(
+                    title="HBIM Error",
+                    text=str(e),
+                    font=ctk.CTkFont(family="LXGW WenKai", size=22),
+                )
+            else:
+                print("str(e)")
             return None
 
     return wrapper

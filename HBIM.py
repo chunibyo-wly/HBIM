@@ -1,8 +1,8 @@
 import json
 import os
 import sys
+from copy import deepcopy
 
-GUI = True
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(WORKSPACE)
 import math
@@ -13,7 +13,9 @@ import time
 import customtkinter as ctk
 import numpy as np
 
-if GUI:
+from utils.settings import Settings
+
+if Settings.GUI:
     import cccorelib  # type: ignore
     import pycc  # type: ignore
 
@@ -23,17 +25,9 @@ ctk.set_default_color_theme("green")
 ctk.FontManager.load_font(os.path.join(WORKSPACE, "LXGWWenKai.ttf"))
 
 from semregpy import ColumnComponent, DoorComponent, OfficeComponent, SemRegPy
-from utils import (
-    ABORT,
-    EXIT,
-    REGISTER_MULTI,
-    REGISTER_SINGLE,
-    CTkAlertDialog,
-    Settings,
-    SignalMessage,
-    exception_handler_decorator,
-    export_dynamo,
-)
+from utils import (ABORT, EXIT, REGISTER_MULTI, REGISTER_SINGLE,
+                   CTkAlertDialog, SignalMessage, exception_handler_decorator,
+                   export_dynamo)
 
 
 def CC_transform(entity, translation=(0.0, 0.0, 0.0), rz=0.0):
@@ -552,16 +546,17 @@ def solve_and_send_results(
     """
     Helper function to solve the problem and send results.
     """
+    mesh = deepcopy(solver.mesh.mesh)
     result = solver.solve(
         bim_family, max_eval=iteration, alg=Settings.algorithms[algorithm]
     )
     print(result)
-    mesh_center = solver.mesh.pcd.origin.get_center()
+    mesh_center = mesh.get_center()
 
     translation = (
-        result["best_c"][0] - mesh_center[0],
-        result["best_c"][1] - mesh_center[1],
-        result["best_c"][2] - mesh_center[2],
+        result["c"][0] - mesh_center[0],
+        result["c"][1] - mesh_center[1],
+        result["c"][2] - mesh_center[2],
     )
     rotation = result["best_rz"]
 
@@ -657,7 +652,7 @@ def background_task(pipe_in, pipe_out):
 
 
 if __name__ == "__main__":
-    if GUI:
+    if Settings.GUI:
         """
         tkinter    ---> pipe_in  ---> background (request)
         background ---> pipe_out ---> tkinter    (result)
@@ -680,12 +675,11 @@ if __name__ == "__main__":
     else:
         solver = SemRegPy()
         solver.VERBOSE = False
-        execute_register_single()
         bim_family = load_and_prepare_solver(
             solver,
             Settings.pcd_test_path[0],
-            r"D:\Dropbox\2024.GIS_award\2024_code\HBIM-master\data\comp\Door 2.obj",
-            "Door",
+            Settings.mesh_test_path[0],
+            "Column",
         )
 
         # Solve and send results

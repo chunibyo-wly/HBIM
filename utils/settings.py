@@ -55,3 +55,4 @@ class Settings:
         r"data/door/Door190x110.obj",
         r"data/comp/OfficeChair_1.obj",
     ]
+    GUI = True
