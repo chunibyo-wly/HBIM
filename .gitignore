@@ -163,3 +163,11 @@ cython_debug/
 a.py
 bench.py
 *.dyn
+output
+0.ply
+1.ply
+2.ply
+3.ply
+4.ply
+5.ply
+cluster*.ply

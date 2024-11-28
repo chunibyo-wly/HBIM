@@ -46,13 +46,13 @@ class Settings:
         ]
     }  # 42-43
     pcd_test_path = [
-        r"data/test/MA-room1-2cm.ply",
-        r"data/prob/25_Parking_01_F2_door.ply",
-        r"data/prob/pauly_room_0_chair.ply",
+        r"data/01_column.ply",
+        r"data/02_gong.ply",
+        r"data/03_column_gong.ply",
     ]
     mesh_test_path = [
-        r"data/comp/column1.obj",
-        r"data/door/Door190x110.obj",
-        r"data/comp/OfficeChair_1.obj",
+        r"data/01_column.obj",
+        r"data/gong2.obj",
+        r"data/01_column.obj",
     ]
     GUI = True

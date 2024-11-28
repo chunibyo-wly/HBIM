@@ -2,13 +2,22 @@ import copy
 import os
 import random
 import time
+import tempfile
 
 import nlopt
 import numpy as np
 import open3d as o3d
 
-from semregpy import ColumnComponent, DoorComponent, OfficeComponent
-from utils import Settings
+from semregpy import (
+    ColumnComponent,
+    DoorComponent,
+    OfficeComponent,
+    DougongComponent,
+)
+from utils import Settings, settings
+
+temp_dir = tempfile.gettempdir()
+log_prefix = os.path.join(temp_dir, "cma_temp_")  # Prefix for log files
 
 
 def random_color():
@@ -79,6 +88,10 @@ class PCD:
                     patch_remove_points, self.origin, z_ratio=self.z_ratio
                 )
             )
+            if Settings.GUI:
+                for i, p in enumerate(self.patch_recover):
+                    p.paint_uniform_color(random_color())
+                    o3d.io.write_point_cloud(f"cluster{i}.ply", p)
             print("pointcloud has ", len(self.patch_recover), "cluster")
 
         if split_patch:
@@ -408,6 +421,29 @@ class SemRegPy:
             x = opt.optimize(init_x)
             self.time_elapsed = time.time() - time_start  # t_end
             minf = opt.last_optimum_value()
+        elif self.library == "cmaes":
+            import cma
+
+            # 设置初始参数
+            lower_bounds = np.zeros(dim)
+            upper_bounds = np.ones(dim)
+            bounds = [lower_bounds, upper_bounds]
+            sigma = 0.3  # 标准偏差，控制初始搜索范围
+            opts = {
+                "bounds": bounds,
+                "maxfevals": max_eval,  # 最大评价次数
+                "tolfunrel": 3e-4,  # 收敛容忍度（相对）
+                "verb_filenameprefix": log_prefix,  # Write logs to temp folder
+            }
+
+            # 启动 CMA-ES 优化
+            time_start = time.time()  # t_start
+            result = cma.fmin(self.fitness, init_x, sigma, opts)  # 调用优化器
+            self.time_elapsed = time.time() - time_start  # t_end
+
+            # 获取结果
+            x = result[0]  # 最优解
+            minf = result[1]  # 最优目标函数值
         if self.VERBOSE:
             print(
                 "step1 alg, max_eval, minf, self.time_elapsed:",
@@ -445,6 +481,29 @@ class SemRegPy:
             x = opt.optimize(init_x)
             self.time_elapsed = time.time() - time_start  # t_end
             minf = opt.last_optimum_value()
+        elif self.library == "cmaes":
+            import cma
+
+            # 定义边界和CMA-ES参数
+            lower_bounds = np.zeros(dim)
+            upper_bounds = np.ones(dim)
+            bounds = [lower_bounds, upper_bounds]
+            sigma = 0.3  # 初始标准偏差，控制搜索步长
+            opts = {
+                "bounds": bounds,  # 搜索范围：[0, 1]^dim
+                "maxfevals": int(max_eval / 2),  # 设置最大评价次数
+                "tolfunrel": 3e-4,  # 收敛相对容忍度
+                "verb_filenameprefix": log_prefix,  # Write logs to temp folder
+            }
+
+            # 启动CMA-ES优化
+            time_start = time.time()  # 记录开始时间
+            result = cma.fmin(self.fitness, init_x, sigma, opts)  # 优化
+            self.time_elapsed = time.time() - time_start  # 记录结束时间
+
+            # 提取优化结果
+            x = result[0]  # 最优解
+            minf = result[1]  # 最优目标函数值
         if self.VERBOSE:
             print(
                 "step2 alg, max_eval, minf, self.time_elapsed:",
@@ -463,18 +522,10 @@ class SemRegPy:
 
         # ! move z axis in hard code
         # TODO: should be removed in the future
-        self.mesh_pcd = self.transformation(self.mesh.pcd.patch[0], self.param)
-        obb = self.mesh_pcd.get_axis_aligned_bounding_box()
-        extent = np.array(obb.get_extent())
-        extent[2] = 100000
-        obb2 = o3d.geometry.AxisAlignedBoundingBox(
-            obb.get_min_bound(), obb.get_max_bound()
-        )
-        tmp_pcd = self.prob.origin.crop(obb2)
-        self.param["c"][2] = (
-            self.prob.origin.get_min_bound()[2] #+ obb.get_extent()[2] / 2
-        )
-        # o3d.io.write_point_cloud("tmp.ply", tmp_pcd)
+        if comp.type == "Dougong":
+            self.param["c"][2] = self.prob.patch[1].get_min_bound()[2]
+        else:
+            self.param["c"][2] = self.prob.origin.get_min_bound()[2]
         # ! move z axis in hard code
 
         return param
@@ -488,7 +539,57 @@ class SemRegPy:
         pcd_T.translate(translation)
         return pcd_T
 
-    def update_kdtree(self):
+    def update_kdtree(self, cnt=0):
+        self.mesh_pcd = self.transformation(self.mesh.pcd.patch[0], self.param)
+        if self.comp.type == "Column":
+            obb_max_bound = self.mesh_pcd.get_max_bound()
+            obb_max_bound[2] = (
+                obb_max_bound[2] - self.mesh_pcd.get_min_bound()[2]
+            ) * 0.8 + self.mesh_pcd.get_min_bound()[2]
+            obb = o3d.geometry.AxisAlignedBoundingBox(
+                self.mesh_pcd.get_min_bound(), obb_max_bound
+            ).get_oriented_bounding_box()
+        else:
+            obb = self.mesh_pcd.get_oriented_bounding_box()
+        obb_width = (obb.extent[0] + obb.extent[1]) / 2
+        obb_tabu_width = obb_width + self.TABU_RANGE * 2
+        obb.scale(obb_tabu_width / obb_width, center=obb.get_center())
+        print("obb.extent: ", obb.extent)
+        for hv_id in [0, 1]:
+            self.prob.patch[hv_id] = self.prob.patch[hv_id].crop(
+                obb, invert=True
+            )
+            self.prob.kdtree[hv_id] = o3d.geometry.KDTreeFlann(
+                self.prob.patch[hv_id]
+            )
+        for i in range(len(self.prob.patch_recover)):
+            self.prob.patch_recover[i] = self.prob.patch_recover[i].crop(
+                obb, invert=True
+            )
+
+        if not Settings.GUI:
+            o3d.io.write_point_cloud(
+                f"{cnt}.ply", self.prob.patch[0] + self.prob.patch[1]
+            )
+        thre = 10 if self.comp.type == "Dougong" else 100
+        print(
+            "patch 0 ",
+            len(self.prob.patch[0].points),
+            "patch 1 ",
+            len(self.prob.patch[1].points),
+            "thre ",
+            thre,
+        )
+        if (
+            len(self.prob.patch[0].points) < thre
+            and len(self.prob.patch[1].points) < thre
+        ) or cnt >= len(self.prob.cluster_center_list):
+            print("Points are not enough")
+            return False
+        else:
+            return True
+
+    def update_kdtree2(self, cnt=0):
         # final mesh position
         self.mesh_pcd = self.transformation(self.mesh.pcd.patch[0], self.param)
         mesh_pcd_center = self.mesh_pcd.get_center()
@@ -626,6 +727,8 @@ class SemRegPy:
             return OfficeComponent()
         elif "door" in fname.lower():
             return DoorComponent()
+        elif "gong" in fname.lower():
+            return DougongComponent()
         else:
             return None
         # mesh = o3d.io.read_triangle_mesh(fname, enable_post_processing = True)

@@ -24,10 +24,23 @@ if Settings.GUI:
 ctk.set_default_color_theme("green")
 ctk.FontManager.load_font(os.path.join(WORKSPACE, "LXGWWenKai.ttf"))
 
-from semregpy import ColumnComponent, DoorComponent, OfficeComponent, SemRegPy
-from utils import (ABORT, EXIT, REGISTER_MULTI, REGISTER_SINGLE,
-                   CTkAlertDialog, SignalMessage, exception_handler_decorator,
-                   export_dynamo)
+from semregpy import (
+    ColumnComponent,
+    DoorComponent,
+    OfficeComponent,
+    DougongComponent,
+    SemRegPy,
+)
+from utils import (
+    ABORT,
+    EXIT,
+    REGISTER_MULTI,
+    REGISTER_SINGLE,
+    CTkAlertDialog,
+    SignalMessage,
+    exception_handler_decorator,
+    export_dynamo,
+)
 
 
 def CC_transform(entity, translation=(0.0, 0.0, 0.0), rz=0.0):
@@ -120,13 +133,13 @@ class MainWindow:
         ).grid(row=cur_row, column=1, columnspan=1, sticky="ew", pady=5, padx=2)
         ctk.CTkButton(
             self.tabDemo,
-            text="Door 预设",
+            text="DouGong 预设",
             command=lambda: self.loadall(1),
             font=self.font,
         ).grid(row=cur_row, column=2, columnspan=1, sticky="ew", pady=5, padx=2)
         ctk.CTkButton(
             self.tabDemo,
-            text="Chair 预设",
+            text="Column & DouGong",
             command=lambda: self.loadall(2),
             font=self.font,
         ).grid(row=cur_row, column=3, columnspan=1, sticky="ew", pady=5, padx=2)
@@ -163,7 +176,7 @@ class MainWindow:
             state="readonly",
             variable=self.family_variable,
             font=self.font,
-            values=("Column", "Door", "Office"),
+            values=("Column", "Door", "Office", "Dougong"),
         ).grid(row=cur_row, column=1, columnspan=2, sticky="ew", padx=2)
         self.mesh_select_btn = ctk.CTkButton(
             self.tabDemo,
@@ -254,7 +267,7 @@ class MainWindow:
             font=self.font,
         ).grid(row=cur_row, column=0, sticky="ew")
         self.algo_variable = ctk.StringVar(
-            value=list(Settings.algorithms.keys())[0]
+            value=list(Settings.algorithms.keys())[1]
         )
         ctk.CTkComboBox(
             self.tabSetup,
@@ -271,7 +284,7 @@ class MainWindow:
             anchor="w",
             font=self.font,
         ).grid(row=cur_row, column=0, sticky="ew")
-        self.iteration_num_variable = ctk.StringVar(value="200")
+        self.iteration_num_variable = ctk.StringVar(value="300")
         ctk.CTkEntry(
             self.tabSetup,
             textvariable=self.iteration_num_variable,
@@ -385,6 +398,8 @@ class MainWindow:
             self.family_variable.set("Door")
         elif "office" in self.mesh_path.lower():
             self.family_variable.set("Office")
+        elif "gong" in self.mesh_path.lower():
+            self.family_variable.set("Dougong")
 
     @exception_handler_decorator
     def select_target_BIM_compp(self):
@@ -531,6 +546,8 @@ def load_and_prepare_solver(solver, pcd_path, mesh_path, bim_family_type):
         bim_family = DoorComponent()
     elif bim_family_type == "Office":
         bim_family = OfficeComponent()
+    elif bim_family_type == "Dougong":
+        bim_family = DougongComponent()
 
     tmp = solver.load_mesh_file(mesh_path)
     if bim_family is None:
@@ -564,7 +581,6 @@ def solve_and_send_results(
         "t": translation,
         "R": -np.rad2deg(rotation),  # convert rotation to degrees
     }
-
     return msg, result["best_f"]
 
 
@@ -573,6 +589,7 @@ def execute_register_single(solver, pipe_out, params):
     """
     Handles the registration process for a single component.
     """
+    start_time = time.time()
     # Load and prepare the solver
     bim_family = load_and_prepare_solver(
         solver, params["pcd_path"], params["mesh_path"], params["bim_family"]
@@ -582,6 +599,7 @@ def execute_register_single(solver, pipe_out, params):
     msg, _ = solve_and_send_results(solver, bim_family)
     solver.update_kdtree()
     # Signal that the process is done
+    print(f"Time elapsed: {time.time() - start_time}")
     pipe_out.put(msg)
     pipe_out.put("STOP")
 
@@ -591,12 +609,10 @@ def execute_register_multi(solver, pipe_in, pipe_out, params):
     """
     Handles the registration process for multiple components, with continuous improvement.
     """
-    # Load and prepare the solver
-    bim_family = load_and_prepare_solver(
-        solver, params["pcd_path"], params["mesh_path"], params["bim_family"]
-    )
+    start_time = time.time()
 
     improved = True
+    cnt = 1
     while improved:
         # Check for abort signal
         try:
@@ -606,17 +622,28 @@ def execute_register_multi(solver, pipe_in, pipe_out, params):
         except queue.Empty:
             pass
 
+            # Load and prepare the solver
+        bim_family = load_and_prepare_solver(
+            solver,
+            params["pcd_path"],
+            params["mesh_path"],
+            params["bim_family"],
+        )
         # Solve and send results
         msg, best_f = solve_and_send_results(solver, bim_family)
 
+        thre = 0.6 if params["bim_family"] == "Dougong" else 0.2
         # Check for improvement and update k-d tree
-        update = solver.update_kdtree()
-        improved = best_f < 0.2 and update
+        update = solver.update_kdtree(cnt)
+        print(f"Best fitness: {best_f} and threshold: {thre}")
+        improved = best_f < thre and update
 
         # Wait for a short time before next iteration
         pipe_out.put(msg)
         time.sleep(1)
+        cnt += 1
 
+    print(f"Time elapsed: {time.time() - start_time}")
     # Signal that the process is done
     pipe_out.put("STOP")
 
@@ -631,6 +658,7 @@ def background_task(pipe_in, pipe_out):
     """
     pycc.ccLog.Warning("Background task started")
     solver = SemRegPy()
+    # solver = SemRegPy(lib='cmaes')
     solver.VERBOSE = False
 
     while True:
@@ -652,14 +680,13 @@ def background_task(pipe_in, pipe_out):
 
 
 if __name__ == "__main__":
+    pipe_in = queue.Queue()
+    pipe_out = queue.Queue()
     if Settings.GUI:
         """
         tkinter    ---> pipe_in  ---> background (request)
         background ---> pipe_out ---> tkinter    (result)
         """
-
-        pipe_in = queue.Queue()
-        pipe_out = queue.Queue()
         t = threading.Thread(
             target=background_task,
             args=(
@@ -675,13 +702,26 @@ if __name__ == "__main__":
     else:
         solver = SemRegPy()
         solver.VERBOSE = False
-        bim_family = load_and_prepare_solver(
+        execute_register_multi(
             solver,
-            Settings.pcd_test_path[0],
-            Settings.mesh_test_path[0],
-            "Column",
+            pipe_in,
+            pipe_out,
+            {
+                "pcd_path": r"D:\Dropbox\2024.GIS_award\2024_code\HBIM-master\data\test_groundtruth_ver2\column_gong2.ply",
+                "mesh_path": os.path.join(
+                    WORKSPACE, Settings.mesh_test_path[0]
+                ),
+                "bim_family": "Column",
+            },
         )
 
-        # Solve and send results
-        msg, _ = solve_and_send_results(solver, bim_family)
-        solver.update_kdtree()
+        execute_register_multi(
+            solver,
+            pipe_in,
+            pipe_out,
+            {
+                "pcd_path": r"D:\Dropbox\2024.GIS_award\2024_code\HBIM-master\data\test_groundtruth_ver2\column_gong2.ply",
+                "mesh_path": r"D:\Dropbox\2024.GIS_award\2024_code\HBIM-master\data\test_groundtruth_ver2\gong1.obj",
+                "bim_family": "Dougong",
+            },
+        )
