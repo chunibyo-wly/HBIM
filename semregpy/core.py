@@ -3,6 +3,7 @@ import os
 import random
 import time
 import tempfile
+import uuid
 
 import nlopt
 import numpy as np
@@ -310,6 +311,7 @@ class Mesh:
     def __init__(self, mesh):
         self.mesh = mesh
         self.mesh.translate(-self.mesh.get_center())
+        self.id = str(uuid.uuid4().hex)
 
     def sample_pcd(self, w, depth=6):
         max = self.mesh.get_max_bound()
@@ -357,6 +359,13 @@ class SemRegPy:
         self.library = lib
 
         self.pcd_cache_path = ""
+        self.mesh_transformation_history = {}
+        self.id_bim_type = {
+            "Column": set(),
+            "Dougong": set(),
+        }
+        self.id_to_mesh = {}
+        self.host_relationship = {}
 
     def solve(
         self,
@@ -520,15 +529,64 @@ class SemRegPy:
 
         self.param = param
 
+        if self.mesh.id not in self.mesh_transformation_history:
+            self.mesh_transformation_history[self.mesh.id] = []
+        self.mesh_transformation_history[self.mesh.id].append(
+            copy.deepcopy(self.param)
+        )
+        if self.comp.type in self.id_bim_type:
+            self.id_bim_type[self.comp.type].add(self.mesh.id)
+
         # ! move z axis in hard code
         # TODO: should be removed in the future
         if comp.type == "Dougong":
             self.param["c"][2] = self.prob.patch[1].get_min_bound()[2]
+
+            closest_column_id = None
+            closest_distance = 1e8
+            closest_param = None
+            for column_id in self.id_bim_type["Column"]:
+                existing_mesh = copy.deepcopy(self.id_to_mesh[column_id][0].mesh)
+                for param in self.mesh_transformation_history[column_id]:
+                    existing_mesh_T = self.transformation(existing_mesh, param)
+
+                    mesh_pcd = self.transformation(
+                        self.mesh.pcd.patch[0], self.param
+                    )
+                    current_obb = mesh_pcd.get_axis_aligned_bounding_box()
+                    existing_obb = (
+                        existing_mesh_T.get_axis_aligned_bounding_box()
+                    )
+                    # 斗拱的高度不高于柱子顶部 0.2m
+                    diff_z = (
+                        current_obb.get_min_bound()[2]
+                        - existing_obb.get_max_bound()[2]
+                    )
+                    # 斗拱的中心点与柱子的中心点的水平距离不超过0.2m
+                    diff_xy = np.linalg.norm(
+                        np.array(current_obb.get_center())[:2]
+                        - np.array(existing_obb.get_center())[:2]
+                    )
+                    if diff_z >= 0.3 or diff_xy >= 0.5:
+                        continue
+                    distance = np.linalg.norm(
+                        np.array(current_obb.get_center())
+                        - np.array(existing_obb.get_center())
+                    )
+                    if distance < closest_distance:
+                        closest_column_id = column_id
+                        closest_distance = distance
+                        closest_param = copy.deepcopy(param)
+
+            if closest_column_id is not None and closest_param is not None:
+                self.param["c"][0] = closest_param["c"][0]
+                self.param["c"][1] = closest_param["c"][1]
+                self.host_relationship[self.mesh.id] = closest_column_id
         else:
             self.param["c"][2] = self.prob.origin.get_min_bound()[2]
         # ! move z axis in hard code
 
-        return param
+        return self.param
 
     def transformation(self, pcd, param):
         translation = param["best_c"]
@@ -721,17 +779,20 @@ class SemRegPy:
         self.mesh = Mesh(mesh)
         self.mesh.center = mesh.get_center()
         if "column" in fname.lower():
-            return ColumnComponent()
+            comp = ColumnComponent()
         elif "office" in fname.lower():
-            return OfficeComponent()
+            comp = OfficeComponent()
         elif "room" in fname.lower():
-            return OfficeComponent()
+            comp = OfficeComponent()
         elif "door" in fname.lower():
-            return DoorComponent()
+            comp = DoorComponent()
         elif "gong" in fname.lower():
-            return DougongComponent()
+            comp = DougongComponent()
         else:
-            return None
+            comp = None
+        self.id_to_mesh[self.mesh.id] = (copy.deepcopy(self.mesh), comp)
+        return comp
+
         # mesh = o3d.io.read_triangle_mesh(fname, enable_post_processing = True)
         # mesh_v = mesh.getAssociatedCloud().points()
         # center = np.mean(mesh_v, axis=0)
@@ -752,6 +813,11 @@ class SemRegPy:
         ):
             return
         self.pcd_cache_path = fname
+        self.mesh_transformation_history = {}
+        self.id_bim_type = {
+            "Column": set(),
+            "Dougong": set(),
+        }
         pcd = o3d.io.read_point_cloud(fname)
         # pcd.translate(-pcd.get_center())
         self.prob = PCD(pcd, cluster=True)

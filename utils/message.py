@@ -2,6 +2,7 @@ EXIT = "exit"
 REGISTER_MULTI = "register_multi"
 REGISTER_SINGLE = "register_single"
 ABORT = "abort"
+EXPORT = "export"
 
 
 class SignalMessage:

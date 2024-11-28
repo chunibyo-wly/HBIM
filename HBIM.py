@@ -36,6 +36,7 @@ from utils import (
     EXIT,
     REGISTER_MULTI,
     REGISTER_SINGLE,
+    EXPORT,
     CTkAlertDialog,
     SignalMessage,
     exception_handler_decorator,
@@ -84,6 +85,7 @@ class MainWindow:
         self.params.parentWidget = CC.getMainWindow()
         self.params.alwaysDisplayLoadDialog = False
         self.transformation_list = []
+        self.history = []
         self.initUI()
 
     @exception_handler_decorator
@@ -408,7 +410,7 @@ class MainWindow:
         )
         if tmp is None or tmp == "":
             return
-        self.transformation_list = []
+        # self.transformation_list = []
         self._set_mesh_path(tmp)
 
     @exception_handler_decorator
@@ -526,8 +528,11 @@ class MainWindow:
 
         # If a file path is selected, print it (you can add your save logic here)
         if file_path:
+            self.pipe_in.put(SignalMessage(EXPORT))
+            result = self.pipe_out.get()
+
             print(f"File saved at: {file_path}")
-            data = json.dumps(export_dynamo(self.transformation_list), indent=4)
+            data = json.dumps(export_dynamo(*result), indent=4)
             with open(file_path, "w") as f:
                 f.write(data)
 
@@ -673,6 +678,14 @@ def background_task(pipe_in, pipe_out):
             elif msg_text == REGISTER_MULTI:
                 params = msg.message
                 execute_register_multi(solver, pipe_in, pipe_out, params)
+            elif msg_text == EXPORT:
+                pipe_out.put(
+                    (
+                        solver.mesh_transformation_history,
+                        solver.id_to_mesh,
+                        solver.host_relationship,
+                    )
+                )
         except queue.Empty:
             pass
         time.sleep(0.1)
@@ -707,9 +720,9 @@ if __name__ == "__main__":
             pipe_in,
             pipe_out,
             {
-                "pcd_path": r"D:\Dropbox\2024.GIS_award\2024_code\HBIM-master\data\test_groundtruth_ver2\column_gong2.ply",
+                "pcd_path": os.path.join(WORKSPACE, Settings.pcd_test_path[2]),
                 "mesh_path": os.path.join(
-                    WORKSPACE, Settings.mesh_test_path[0]
+                    WORKSPACE, Settings.mesh_test_path[2]
                 ),
                 "bim_family": "Column",
             },
@@ -720,8 +733,8 @@ if __name__ == "__main__":
             pipe_in,
             pipe_out,
             {
-                "pcd_path": r"D:\Dropbox\2024.GIS_award\2024_code\HBIM-master\data\test_groundtruth_ver2\column_gong2.ply",
-                "mesh_path": r"D:\Dropbox\2024.GIS_award\2024_code\HBIM-master\data\test_groundtruth_ver2\gong1.obj",
+                "pcd_path": os.path.join(WORKSPACE, Settings.pcd_test_path[2]),
+                "mesh_path": os.path.join(WORKSPACE, "./data/gong2.obj"),
                 "bim_family": "Dougong",
             },
         )
