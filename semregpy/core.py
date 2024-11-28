@@ -541,11 +541,12 @@ class SemRegPy:
 
     def update_kdtree(self, cnt=0):
         self.mesh_pcd = self.transformation(self.mesh.pcd.patch[0], self.param)
-        if self.comp.type == "Column":
+        if self.comp.type == "Column" or self.comp.type == "Dougong":
             obb_max_bound = self.mesh_pcd.get_max_bound()
+            ratio = 0.8 if self.comp.type == "Column" else 2
             obb_max_bound[2] = (
                 obb_max_bound[2] - self.mesh_pcd.get_min_bound()[2]
-            ) * 0.8 + self.mesh_pcd.get_min_bound()[2]
+            ) * ratio + self.mesh_pcd.get_min_bound()[2]
             obb = o3d.geometry.AxisAlignedBoundingBox(
                 self.mesh_pcd.get_min_bound(), obb_max_bound
             ).get_oriented_bounding_box()
