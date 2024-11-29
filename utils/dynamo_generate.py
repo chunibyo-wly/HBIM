@@ -2,8 +2,12 @@ import copy
 import json
 import uuid
 
+import numpy as np
 
-def family_instance_generate_node(transformation_list):
+
+def family_instance_generate_node(
+    transformation_dict, id2mesh, host_relationship
+):
     root = {
         "Uuid": "fa59e632-6902-4b27-bd94-401999452ddd",
         "IsCustomNode": False,
@@ -70,19 +74,70 @@ def family_instance_generate_node(transformation_list):
         },
     }
 
-    Node_family_type = [
+    Node_family_template = {
+        "ConcreteType": "DSRevitNodesUI.FamilyTypes, DSRevitNodesUI",
+        "SelectedIndex": 0,
+        "SelectedString": "Column2:Column2",
+        "Id": "6c68b08e7c1b49dca1d68b3e8d8b9493",
+        "NodeType": "ExtensionNode",
+        "Inputs": [],
+        "Outputs": [
+            {
+                "Id": "ab5d0227ad9943a5aab6df8612b4df9e",
+                "Name": "Family Type",
+                "Description": "选定的 Family Type",
+                "UsingDefaultValue": False,
+                "Level": 2,
+                "UseLevels": False,
+                "KeepListStructure": False,
+            }
+        ],
+        "Replication": "Disabled",
+        "Description": "文档中所有可用族类型。",
+    }
+
+    Node_level_template = [
         {
-            "ConcreteType": "DSRevitNodesUI.FamilyTypes, DSRevitNodesUI",
-            "SelectedIndex": 0,
-            "SelectedString": "Column2:Column2",
-            "Id": "6c68b08e7c1b49dca1d68b3e8d8b9493",
-            "NodeType": "ExtensionNode",
+            "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+            "Id": "1de135fcf9b54473aa1f801c84641a1f",
+            "NodeType": "FunctionNode",
+            "Inputs": [
+                {
+                    "Id": "5994a827c1924f2da2fe54e7e048efe2",
+                    "Name": "elevation",
+                    "Description": "double",
+                    "UsingDefaultValue": False,
+                    "Level": 2,
+                    "UseLevels": False,
+                    "KeepListStructure": False,
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": "7ea795726aa14f5da79c043428d299f4",
+                    "Name": "Level",
+                    "Description": "Level",
+                    "UsingDefaultValue": False,
+                    "Level": 2,
+                    "UseLevels": False,
+                    "KeepListStructure": False,
+                }
+            ],
+            "FunctionSignature": "Revit.Elements.Level.ByElevation@double",
+            "Replication": "Auto",
+            "Description": "根据项目中其高程和名称来创建 Revit 标高。名称将采用 Revit 所给的名称。\n\nLevel.ByElevation (elevation: double): Level",
+        },
+        {
+            "ConcreteType": "CoreNodeModels.Input.DoubleInput, CoreNodeModels",
+            "NumberType": "Double",
+            "Id": "a5f3bccd427e45ab8bbed057ddcc765d",
+            "NodeType": "NumberInputNode",
             "Inputs": [],
             "Outputs": [
                 {
-                    "Id": "ab5d0227ad9943a5aab6df8612b4df9e",
-                    "Name": "Family Type",
-                    "Description": "选定的 Family Type",
+                    "Id": "cfb7a7b17c124f1d8291a415f5a3b1a7",
+                    "Name": "",
+                    "Description": "Double",
                     "UsingDefaultValue": False,
                     "Level": 2,
                     "UseLevels": False,
@@ -90,8 +145,9 @@ def family_instance_generate_node(transformation_list):
                 }
             ],
             "Replication": "Disabled",
-            "Description": "文档中所有可用族类型。",
-        }
+            "Description": "创建数字。",
+            "InputValue": 0.0,
+        },
     ]
 
     Node_list_template = [
@@ -240,57 +296,6 @@ def family_instance_generate_node(transformation_list):
         },
         {
             "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
-            "Id": "1de135fcf9b54473aa1f801c84641a1f",
-            "NodeType": "FunctionNode",
-            "Inputs": [
-                {
-                    "Id": "5994a827c1924f2da2fe54e7e048efe2",
-                    "Name": "elevation",
-                    "Description": "double",
-                    "UsingDefaultValue": False,
-                    "Level": 2,
-                    "UseLevels": False,
-                    "KeepListStructure": False,
-                }
-            ],
-            "Outputs": [
-                {
-                    "Id": "7ea795726aa14f5da79c043428d299f4",
-                    "Name": "Level",
-                    "Description": "Level",
-                    "UsingDefaultValue": False,
-                    "Level": 2,
-                    "UseLevels": False,
-                    "KeepListStructure": False,
-                }
-            ],
-            "FunctionSignature": "Revit.Elements.Level.ByElevation@double",
-            "Replication": "Auto",
-            "Description": "根据项目中其高程和名称来创建 Revit 标高。名称将采用 Revit 所给的名称。\n\nLevel.ByElevation (elevation: double): Level",
-        },
-        {
-            "ConcreteType": "CoreNodeModels.Input.DoubleInput, CoreNodeModels",
-            "NumberType": "Double",
-            "Id": "a5f3bccd427e45ab8bbed057ddcc765d",
-            "NodeType": "NumberInputNode",
-            "Inputs": [],
-            "Outputs": [
-                {
-                    "Id": "cfb7a7b17c124f1d8291a415f5a3b1a7",
-                    "Name": "",
-                    "Description": "Double",
-                    "UsingDefaultValue": False,
-                    "Level": 2,
-                    "UseLevels": False,
-                    "KeepListStructure": False,
-                }
-            ],
-            "Replication": "Disabled",
-            "Description": "创建数字。",
-            "InputValue": 0.0,
-        },
-        {
-            "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
             "Id": "6c1e2f13b7ea46d8a6e9a5a0cb77bd58",
             "NodeType": "FunctionNode",
             "Inputs": [
@@ -408,59 +413,211 @@ def family_instance_generate_node(transformation_list):
         "Background": "#FFC1D676",
     }
 
+    Node_list_template2 = copy.deepcopy(Node_list_template)
+    Node_list_template2[2] = {
+        "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+        "Id": "a5e851ffc1694a80a96721988458f021",
+        "NodeType": "FunctionNode",
+        "Inputs": [
+            {
+                "Id": "c080a813e711475da79bd28e50fd84f6",
+                "Name": "familyType",
+                "Description": "族类型。也称为族符号。\n\nFamilyType",
+                "UsingDefaultValue": False,
+                "Level": 2,
+                "UseLevels": False,
+                "KeepListStructure": False,
+            },
+            {
+                "Id": "6199c4780c3044ef812db759d8e9HOST",
+                "Name": "host",
+                "Description": "将向其插入 FamilyInstance 的对象通常称为主体。\n\nElement",
+                "UsingDefaultValue": False,
+                "Level": 2,
+                "UseLevels": False,
+                "KeepListStructure": False,
+            },
+            {
+                "Id": "55791089ba5548749646958a7842f63e",
+                "Name": "point",
+                "Description": "将放置实例的物理位置。\n\nPoint",
+                "UsingDefaultValue": False,
+                "Level": 2,
+                "UseLevels": False,
+                "KeepListStructure": False,
+            },
+        ],
+        "Outputs": [
+            {
+                "Id": "6065416333634a059b54285277119ca5",
+                "Name": "FamilyInstance",
+                "Description": "FamilyInstance",
+                "UsingDefaultValue": False,
+                "Level": 2,
+                "UseLevels": False,
+                "KeepListStructure": False,
+            }
+        ],
+        "FunctionSignature": "Revit.Elements.FamilyInstance.ByHostAndPoint@Revit.Elements.FamilyType,Revit.Elements.Element,Autodesk.DesignScript.Geometry.Point",
+        "Replication": "Auto",
+        "Description": "根据 FamilyType (在 Revit API 中也称为 FamilySymbol)及其主体图元和位置放置 Revit FamilyInstance。\n\nFamilyInstance.ByHostAndPoint (familyType: FamilyType, host: Element, point: Point): FamilyInstance",
+    }
+
     MAPPING = {}
     NODES = []
     CONNECTOR = []
 
-    Node_family_type = copy.deepcopy(Node_family_type)
-    for input in Node_family_type[0]["Inputs"]:
-        new_id = str(uuid.uuid4().hex)
-        MAPPING[input["Id"]] = new_id
-        input["Id"] = new_id
-    for output in Node_family_type[0]["Outputs"]:
-        new_id = str(uuid.uuid4().hex)
-        MAPPING[output["Id"]] = new_id
-        output["Id"] = new_id
-    NODES.extend(Node_family_type)
+    transformation_list_by_type = {}
+    for id in transformation_dict:
+        family_type = id2mesh[id][1].type
+        if family_type not in transformation_list_by_type:
+            transformation_list_by_type[family_type] = []
+        tmp1 = transformation_dict[id]
+        tmp2 = []
+        tmp3 = []
+        for param in tmp1:
+            mesh = id2mesh[id][0].mesh
+            mesh_center = mesh.get_center()
+            translation = (
+                param["c"][0] - mesh_center[0],
+                param["c"][1] - mesh_center[1],
+                param["c"][2] - mesh_center[2],
+            )
+            rotation = param["best_rz"]
+            x, y, z = translation
+            rz = -np.rad2deg(rotation)
 
-    for i in range(len(transformation_list)):
-        x, y, z, rz = transformation_list[i]
+            if id in host_relationship:
+                tmp3.append([x, y, z, rz, id])
+            else:
+                tmp2.append([x, y, z, rz, id])
+        if len(tmp2) > 0:
+            transformation_list_by_type[family_type].extend(tmp2)
+        if len(tmp3) > 0:
+            if family_type + "_with_host" not in transformation_list_by_type:
+                transformation_list_by_type[family_type + "_with_host"] = []
+            transformation_list_by_type[family_type + "_with_host"].extend(tmp3)
 
-        node_group = []
-        for node in Node_list_template:
-            node = copy.deepcopy(node)
-            node["Id"] = str(uuid.uuid4().hex)
-            for input in node["Inputs"]:
-                new_id = str(uuid.uuid4().hex)
-                MAPPING[input["Id"]] = new_id
-                input["Id"] = new_id
-            for output in node["Outputs"]:
-                new_id = str(uuid.uuid4().hex)
-                MAPPING[output["Id"]] = new_id
-                output["Id"] = new_id
-            if node["NodeType"] == "CodeBlockNode":
-                node["Code"] = f"{x * 1000};\n{y * 1000};\n0;\n{rz};"
-            node_group.append(node)
-        NODES.extend(node_group)
-        for connector in Connector_list_template:
-            connector = copy.deepcopy(connector)
-            connector["Start"] = MAPPING[connector["Start"]]
-            connector["End"] = MAPPING[connector["End"]]
-            connector["Id"] = str(uuid.uuid4().hex)
-            CONNECTOR.append(connector)
-            print(connector)
-        group = Group_template.copy()
-        group["Id"] = str(uuid.uuid4().hex)
-        group["Title"] = f"# {i}"
-        group["Nodes"] = [node["Id"] for node in node_group]
-        root["View"]["Annotations"].append(group)
+    transformation_list_by_type = {
+        i: transformation_list_by_type[i]
+        for i in transformation_list_by_type
+        if len(transformation_list_by_type[i]) > 0
+    }
+
+    host_store = [{}, {}]  # 0: output, 1: input
+    for comp in transformation_list_by_type:
+        transformation_list = transformation_list_by_type[comp]
+
+        Node_family_type = copy.deepcopy(Node_family_template)
+        Node_family_type["Id"] = str(uuid.uuid4().hex)
+        for input in Node_family_type["Inputs"]:
+            new_id = str(uuid.uuid4().hex)
+            MAPPING[input["Id"]] = new_id
+            input["Id"] = new_id
+        for output in Node_family_type["Outputs"]:
+            new_id = str(uuid.uuid4().hex)
+            MAPPING[output["Id"]] = new_id
+            output["Id"] = new_id
+        NODES.append(Node_family_type)
+
+        if not "with_host" in comp.lower():
+            for node in Node_level_template:
+                node = copy.deepcopy(node)
+                node["Id"] = str(uuid.uuid4().hex)
+                for input in node["Inputs"]:
+                    new_id = str(uuid.uuid4().hex)
+                    MAPPING[input["Id"]] = new_id
+                    input["Id"] = new_id
+                for output in node["Outputs"]:
+                    new_id = str(uuid.uuid4().hex)
+                    MAPPING[output["Id"]] = new_id
+                    output["Id"] = new_id
+                NODES.append(node)
+
+        for i in range(len(transformation_list)):
+            x, y, z, rz, mesh_id = transformation_list[i]
+
+            node_group = []
+            for node in (
+                Node_list_template
+                if not "with_host" in comp.lower()
+                else Node_list_template2
+            ):
+                node = copy.deepcopy(node)
+                node["Id"] = str(uuid.uuid4().hex)
+                for input in node["Inputs"]:
+                    new_id = str(uuid.uuid4().hex)
+                    MAPPING[input["Id"]] = new_id
+                    input["Id"] = new_id
+                    if "with_host" in comp.lower() and input["Name"] == "host":
+                        host_store[1][mesh_id] = input["Id"]
+                for output in node["Outputs"]:
+                    new_id = str(uuid.uuid4().hex)
+                    MAPPING[output["Id"]] = new_id
+                    output["Id"] = new_id
+                    if (
+                        comp.lower() == "column"
+                        and output["Name"] == "FamilyInstance"
+                    ):
+                        host_store[0][mesh_id] = (output["Id"], x, y, z)
+                if node["NodeType"] == "CodeBlockNode":
+                    node["Code"] = f"{x * 1000};\n{y * 1000};\n0;\n{rz};"
+                    if "with_host" in comp.lower():
+                        _, _x, _y, _z = host_store[0][
+                            host_relationship[mesh_id]
+                        ]
+
+                        column_o3d_mesh = id2mesh[host_relationship[mesh_id]][
+                            0
+                        ].mesh
+                        height = (
+                            column_o3d_mesh.get_max_bound()[2]
+                            - column_o3d_mesh.get_min_bound()[2]
+                        )
+                        print(
+                            column_o3d_mesh.get_max_bound()[2],
+                            column_o3d_mesh.get_min_bound()[2],
+                            height,
+                        )
+                        node["Code"] = (
+                            f"{_x * 1000};\n{_y * 1000};\n{height * 1000};\n{rz};"
+                        )
+
+                node_group.append(node)
+            NODES.extend(node_group)
+            for connector in Connector_list_template:
+                connector = copy.deepcopy(connector)
+                if (
+                    connector["Start"] not in MAPPING
+                    or connector["End"] not in MAPPING
+                ):
+                    continue
+                connector["Start"] = MAPPING[connector["Start"]]
+                connector["End"] = MAPPING[connector["End"]]
+                connector["Id"] = str(uuid.uuid4().hex)
+                CONNECTOR.append(connector)
+
+            group = Group_template.copy()
+            group["Id"] = str(uuid.uuid4().hex)
+            group["Title"] = f"{comp} #{i}"
+            group["Nodes"] = [node["Id"] for node in node_group]
+            root["View"]["Annotations"].append(group)
+    for mesh_id in host_relationship:
+        CONNECTOR.append(
+            {
+                "Start": host_store[0][host_relationship[mesh_id]][0],
+                "End": host_store[1][mesh_id],
+                "Id": str(uuid.uuid4().hex),
+                "IsHidden": "False",
+            }
+        )
     root["Nodes"] = NODES
     root["Connectors"] = CONNECTOR
     return root
 
 
-def export_dynamo(transformation_list):
-    return family_instance_generate_node(transformation_list)
+def export_dynamo(history, id2mesh, host_relationship):
+    return family_instance_generate_node(history, id2mesh, host_relationship)
 
 
 def main():

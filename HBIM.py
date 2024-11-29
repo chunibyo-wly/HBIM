@@ -734,7 +734,15 @@ if __name__ == "__main__":
             pipe_out,
             {
                 "pcd_path": os.path.join(WORKSPACE, Settings.pcd_test_path[2]),
-                "mesh_path": os.path.join(WORKSPACE, "./data/gong2.obj"),
+                "mesh_path": os.path.join(WORKSPACE, "./data/gong1.obj"),
                 "bim_family": "Dougong",
             },
         )
+
+        data = export_dynamo(
+            solver.mesh_transformation_history,
+            solver.id_to_mesh,
+            solver.host_relationship,
+        )
+        with open("./family_instance_generate.dyn", "w") as f:
+            f.write(json.dumps(data, indent=4))
