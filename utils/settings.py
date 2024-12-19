@@ -55,4 +55,5 @@ class Settings:
         r"data/gong2.obj",
         r"data/01_column.obj",
     ]
-    GUI = True
+    GUI = False
+    PROFILE = True

@@ -8,6 +8,13 @@ from utils.message import *
 from utils.settings import *
 from utils.dynamo_generate import export_dynamo
 
+if (not Settings.GUI) and Settings.PROFILE:
+    from line_profiler import profile
+else:
+
+    def profile(f):
+        return f
+
 
 def exception_handler_decorator(func):
     @wraps(func)

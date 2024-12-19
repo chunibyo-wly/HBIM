@@ -15,7 +15,7 @@ from semregpy import (
     OfficeComponent,
     DougongComponent,
 )
-from utils import Settings, settings
+from utils import Settings, profile
 
 temp_dir = tempfile.gettempdir()
 log_prefix = os.path.join(temp_dir, "cma_temp_")  # Prefix for log files
@@ -34,6 +34,7 @@ def npxyz_to_pcd(np):
     return pcd
 
 
+@profile
 def nth_neibour_distance(points, nth=4):
     """
     return: mean_4th_distance, std_distance, eps
@@ -72,6 +73,7 @@ class PCD:
     kdtree = None  # kdtree， 0 = horizontal, 1 = vertical
     WEIGHT_NORNAL_ERROR = 0.2  # normal error 权重
 
+    @profile
     def __init__(self, pcd, control_size=None, cluster=False, split_patch=True):
         self.control_size = control_size
         self.origin = pcd  # .voxel_down_sample(voxel_size=0.02)
@@ -142,8 +144,16 @@ class PCD:
             self.patch[0] = self.kdtree[0]
             self.patch[1] = self.kdtree[1]
 
-        self.kdtree[0] = o3d.geometry.KDTreeFlann(self.patch[0])
-        self.kdtree[1] = o3d.geometry.KDTreeFlann(self.patch[1])
+        # self.kdtree[0] = o3d.geometry.KDTreeFlann(self.patch[0])
+        # self.kdtree[1] = o3d.geometry.KDTreeFlann(self.patch[1])
+        self.kdtree[0] = o3d.core.nns.NearestNeighborSearch(
+            np.asarray(self.patch[0].points)
+        )
+        self.kdtree[0].knn_index()
+        self.kdtree[1] = o3d.core.nns.NearestNeighborSearch(
+            np.asarray(self.patch[1].points)
+        )
+        self.kdtree[1].knn_index()
 
     def resort_clusters(self, clusters, target_points):
 
@@ -203,6 +213,7 @@ class PCD:
         indices = np.sort(indices)[1:]
         return np.split(points, indices)
 
+    @profile
     def recover_outliers(self, points, ori_points, z_ratio=0.8):
         """
         根据dbscan cluster的结果，将cluster中z轴上的点云恢复成原始点云
@@ -262,6 +273,7 @@ class PCD:
         points_new = points.crop(box_new)
         return points_new
 
+    @profile
     def cluster(self, pcd):
         xyz = np.array(pcd.points)
         eps = nth_neibour_distance(xyz)[2]
@@ -367,6 +379,7 @@ class SemRegPy:
         self.id_to_mesh = {}
         self.host_relationship = {}
 
+    @profile
     def solve(
         self,
         comp,
@@ -546,7 +559,9 @@ class SemRegPy:
             closest_distance = 1e8
             closest_param = None
             for column_id in self.id_bim_type["Column"]:
-                existing_mesh = copy.deepcopy(self.id_to_mesh[column_id][0].mesh)
+                existing_mesh = copy.deepcopy(
+                    self.id_to_mesh[column_id][0].mesh
+                )
                 for param in self.mesh_transformation_history[column_id]:
                     existing_mesh_T = self.transformation(existing_mesh, param)
 
@@ -597,6 +612,7 @@ class SemRegPy:
         pcd_T.translate(translation)
         return pcd_T
 
+    @profile
     def update_kdtree(self, cnt=0):
         self.mesh_pcd = self.transformation(self.mesh.pcd.patch[0], self.param)
         if self.comp.type == "Column" or self.comp.type == "Dougong":
@@ -618,9 +634,13 @@ class SemRegPy:
             self.prob.patch[hv_id] = self.prob.patch[hv_id].crop(
                 obb, invert=True
             )
-            self.prob.kdtree[hv_id] = o3d.geometry.KDTreeFlann(
-                self.prob.patch[hv_id]
+            # self.prob.kdtree[hv_id] = o3d.geometry.KDTreeFlann(
+            #     self.prob.patch[hv_id]
+            # )
+            self.prob.kdtree[hv_id] = o3d.core.nns.NearestNeighborSearch(
+                np.asarray(self.prob.patch[hv_id].points)
             )
+            self.prob.kdtree[hv_id].knn_index()
         for i in range(len(self.prob.patch_recover)):
             self.prob.patch_recover[i] = self.prob.patch_recover[i].crop(
                 obb, invert=True
@@ -822,7 +842,46 @@ class SemRegPy:
         # pcd.translate(-pcd.get_center())
         self.prob = PCD(pcd, cluster=True)
 
+    def dist_normal_batch(self, normals1, normals2, distances):
+        cos_err = np.minimum(
+            np.abs(1 - np.sum(normals1 * normals2, axis=1)),
+            np.abs(1 - np.sum(-normals1 * normals2, axis=1)),
+        )
+        dn = self.prob.WEIGHT_NORNAL_ERROR * cos_err
+        return distances + dn**2 + 2 * np.sqrt(distances) * dn
+
+    def evaluate_batch(self, patch_id, param):
+        # 获取点云和法向量
+        points = np.array(self.mesh.pcd.patch[patch_id].points)  # Nx3
+        normals = np.array(self.mesh.pcd.patch[patch_id].normals)  # Nx3
+        c = np.array(param["c"])  # 偏移量 (3,)
+        rz = param["rz"]  # 旋转角度 (scalar)
+
+        cos_rz = np.cos(rz)
+        sin_rz = np.sin(rz)
+        rotation_matrix = np.array(
+            [[cos_rz, sin_rz, 0], [-sin_rz, cos_rz, 0], [0, 0, 1]]
+        )  # 3x3
+        # 批量旋转和偏移
+        transformed_points = np.dot(points, rotation_matrix.T) + c
+
+        # 批量计算距离和法向量误差
+        results = []
+
+        indices, distances = self.prob.kdtree[patch_id].knn_search(
+            transformed_points, 1
+        )
+        distances = distances.numpy()[:, 0]
+        if self.prob.WEIGHT_NORNAL_ERROR > 0:
+            normals2 = np.asarray(self.prob.patch[patch_id].normals)[
+                indices.numpy().flatten()
+            ]
+            results = self.dist_normal_batch(normals, normals2, distances)
+
+        return np.array(results)  # 返回所有点的误差
+
     # eval
+    @profile
     def evaluate(self, idx, patch_id, param, tmp_p=[0, 0, 0]):
         p = self.mesh.pcd.patch[patch_id].points[idx]
         c = param["c"]
@@ -841,6 +900,7 @@ class SemRegPy:
             )
         return self.prob.dist(tmp_p, patch_id)
 
+    @profile
     def fitness(self, x, nlopt_func_data=None):
         d = self.comp.decode_x(x)
         err_sum = 0.0
@@ -860,18 +920,27 @@ class SemRegPy:
                 points = self.mesh.pcd.patch[i].points
                 num_pts = len(points)
                 min_bound_z = self.mesh.pcd.patch[i].get_min_bound()[2]
+                # 筛选有效点
+                valid_indices = []
                 for idx in range(num_pts):
                     if "ignore_z" in self.comp.params:
                         if (points[idx][2] - min_bound_z) <= self.comp.params[
                             "ignore_z"
                         ] * height:
                             continue
-                    v, idx = self.evaluate(idx, i, d, tmp_p)
-                    err_a += v
-                    num_a += 1
+                    valid_indices.append(idx)
+
+                # 批量处理
+                if valid_indices:
+                    param = d  # 假设 param = d
+                    errors = self.evaluate_batch(i, param)  # 批量计算
+                    err_a = np.sum(errors)  # 累加误差
+                    num_a = len(errors)  # 有效点数
+
                 if num_a > 0:
                     err_sum += err_a * w[i] * w[i]
                     num_sum += num_a * w[i]
+
         f = np.sqrt(err_sum / num_sum)
         T2 = time.time()
         self.iter += 1

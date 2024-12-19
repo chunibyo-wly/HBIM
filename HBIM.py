@@ -14,6 +14,7 @@ import customtkinter as ctk
 import numpy as np
 
 from utils.settings import Settings
+import timeit
 
 if Settings.GUI:
     import cccorelib  # type: ignore
@@ -645,7 +646,7 @@ def execute_register_multi(solver, pipe_in, pipe_out, params):
 
         # Wait for a short time before next iteration
         pipe_out.put(msg)
-        time.sleep(1)
+        # time.sleep(1)
         cnt += 1
 
     print(f"Time elapsed: {time.time() - start_time}")
@@ -688,7 +689,7 @@ def background_task(pipe_in, pipe_out):
                 )
         except queue.Empty:
             pass
-        time.sleep(0.1)
+        # time.sleep(0.1)
     pycc.ccLog.Warning("Background task stopped")
 
 
@@ -713,6 +714,8 @@ if __name__ == "__main__":
         pipe_in.put(SignalMessage(EXIT))
         t.join()
     else:
+        start_time = timeit.default_timer()
+
         solver = SemRegPy()
         solver.VERBOSE = False
         execute_register_multi(
@@ -744,5 +747,7 @@ if __name__ == "__main__":
             solver.id_to_mesh,
             solver.host_relationship,
         )
+        elapsed = timeit.default_timer() - start_time
+        print(f"Total Time elapsed: {elapsed:.6f} seconds")
         with open("./family_instance_generate.dyn", "w") as f:
             f.write(json.dumps(data, indent=4))

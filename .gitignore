@@ -171,3 +171,5 @@ output
 4.ply
 5.ply
 cluster*.ply
+*.txt
+*.lprof
